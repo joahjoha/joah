@@ -414,16 +414,9 @@ function applyCensor(){
     lw.forEach(w=>{if(w.bbox.y0<t)t=w.bbox.y0;if(w.bbox.y1>b)b=w.bbox.y1;});
     lineBoxes.push({top:t,bottom:b,words:lw});
   });
-  // 평균 높이 계산
-  const avgH=lineBoxes.length
-    ? Math.round(lineBoxes.reduce((s,l)=>s+(l.bottom-l.top),0)/lineBoxes.length)
-    : 20;
-  // 각 줄 중심 기준으로 평균 높이 적용
+  // 각 줄 실제 높이 그대로 사용
   lineBoxes.forEach(lb=>{
-    const mid=Math.round((lb.top+lb.bottom)/2);
-    const t=mid-Math.round(avgH/2);
-    const b=t+avgH;
-    lb.words.forEach(w=>wordLineMap.set(w,{top:t,bottom:b}));
+    lb.words.forEach(w=>wordLineMap.set(w,{top:lb.top,bottom:lb.bottom}));
   });
   allWords.forEach(w=>{if(!wordLineMap.has(w))wordLineMap.set(w,{top:w.bbox.y0,bottom:w.bbox.y1});});
 
