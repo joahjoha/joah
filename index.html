@@ -401,82 +401,45 @@ function applyCensor(){
   const canvas=document.getElementById('canvas');
   const ctx=canvas.getContext('2d');
   ctx.drawImage(origImg,0,0);
-  const allWords=ocrData.words||[];
   let count=0;
 
-  // 줄별 top/bottom 계산 후 평균 높이로 통일
-  const wordLineMap=new Map();
-  const lineBoxes=[];
-  (ocrData.lines||[]).forEach(line=>{
-    const lw=line.words||[];
-    if(!lw.length)return;
-    let t=Infinity,b=-Infinity;
-    lw.forEach(w=>{if(w.bbox.y0<t)t=w.bbox.y0;if(w.bbox.y1>b)b=w.bbox.y1;});
-    lineBoxes.push({top:t,bottom:b,words:lw});
-  });
-  // 각 줄 실제 높이 그대로 사용
-  lineBoxes.forEach(lb=>{
-    lb.words.forEach(w=>wordLineMap.set(w,{top:lb.top,bottom:lb.bottom}));
-  });
-  allWords.forEach(w=>{if(!wordLineMap.has(w))wordLineMap.set(w,{top:w.bbox.y0,bottom:w.bbox.y1});});
+  // 모든 단어 높이의 중앙값 → 일정한 박스 높이 기준
+  const allWords=ocrData.words||[];
+  const heights=allWords.map(w=>w.bbox.y1-w.bbox.y0).filter(h=>h>0).sort((a,b)=>a-b);
+  const medH=heights.length?heights[Math.floor(heights.length/2)]:20;
+  const padY=Math.round(medH*0.1);
+  const fixedH=medH+padY*2;
 
-  // 단어 레벨 매칭
+  // 단어 bbox 기준, 높이는 중앙값으로 고정
   allWords.forEach(w=>{
     const txt=(w.text||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
     searchWords.forEach(sw=>{
       const swClean=sw.replace(/[^\p{L}\p{N}]/gu,'');
-      if(swClean&&txt.includes(swClean)){
-        const bb=w.bbox;
-        const lb=wordLineMap.get(w);
-        drawCensor(ctx,canvas,bb.x0,lb.top,bb.x1-bb.x0,lb.bottom-lb.top);
-        count++;
-      }
+      if(!swClean||!txt.includes(swClean))return;
+      const bb=w.bbox;
+      const cy=Math.round((bb.y0+bb.y1)/2);
+      drawCensor(ctx,canvas,bb.x0,cy-Math.round(fixedH/2),bb.x1-bb.x0,fixedH);
+      count++;
     });
   });
 
-  // 줄 전체 텍스트 합산 재검색
-  if(ocrData.lines){
-    ocrData.lines.forEach(line=>{
-      const lineWords=line.words||[];
-      const lineTxt=lineWords.map(w=>w.text||'').join('').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
-      let lineTop=Infinity,lineBottom=-Infinity;
-      lineWords.forEach(w=>{if(w.bbox.y0<lineTop)lineTop=w.bbox.y0;if(w.bbox.y1>lineBottom)lineBottom=w.bbox.y1;});
-      searchWords.forEach(sw=>{
-        const swClean=sw.replace(/[^\p{L}\p{N}]/gu,'');
-        if(!swClean)return;
-        let idx=lineTxt.indexOf(swClean);
-        while(idx>=0){
-          let charCount=0,startW=null,endW=null;
-          for(const w of lineWords){
-            const wTxt=(w.text||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
-            if(!startW&&charCount+wTxt.length>idx) startW=w;
-            if(charCount+wTxt.length>=idx+swClean.length){endW=w;break;}
-            charCount+=wTxt.length;
-          }
-          if(startW&&endW){
-            drawCensor(ctx,canvas,startW.bbox.x0,lineTop,endW.bbox.x1-startW.bbox.x0,lineBottom-lineTop);
-            count++;
-          }
-          idx=lineTxt.indexOf(swClean,idx+1);
-        }
-      });
-    });
-  }
-
-  // 심볼 fallback
+  // 심볼 fallback (단어 인식 실패 시)
   if(count===0&&ocrData.symbols){
     const syms=ocrData.symbols||[];
     const allText=syms.map(s=>s.text||'').join('').toLowerCase();
     searchWords.forEach(sw=>{
-      let idx=allText.indexOf(sw);
+      const swClean=sw.replace(/[^\p{L}\p{N}]/gu,'');
+      if(!swClean)return;
+      let idx=allText.indexOf(swClean);
       while(idx>=0){
         const start=syms[idx];
-        const end=syms[Math.min(idx+sw.length-1,syms.length-1)];
+        const end=syms[Math.min(idx+swClean.length-1,syms.length-1)];
         if(start?.bbox&&end?.bbox){
-          drawCensor(ctx,canvas,start.bbox.x0,start.bbox.y0,end.bbox.x1-start.bbox.x0,end.bbox.y1-start.bbox.y0);
+          const cy=Math.round((start.bbox.y0+start.bbox.y1)/2);
+          drawCensor(ctx,canvas,start.bbox.x0,cy-Math.round(fixedH/2),end.bbox.x1-start.bbox.x0,fixedH);
           count++;
         }
-        idx=allText.indexOf(sw,idx+1);
+        idx=allText.indexOf(swClean,idx+1);
       }
     });
   }
