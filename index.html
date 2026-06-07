@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>cover ✿</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#fdf6ff;
+  --card:#fff;
+  --p1:#c084fc;   /* lavender */
+  --p2:#f9a8d4;   /* pink */
+  --p3:#86efac;   /* mint */
+  --p4:#fde68a;   /* butter */
+  --p5:#a5f3fc;   /* sky */
+  --text:#3d2c4e;
+  --t2:#9d7fc0;
+  --t3:#d8b4fe;
+  --t4:#ede9fe;
+  --r:16px;
+  --shadow:0 4px 24px #c084fc22;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%;font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+body::before{
+  content:'';position:fixed;inset:0;z-index:-1;
+  background:
+    radial-gradient(circle at 15% 20%, #f9a8d430 0%, transparent 50%),
+    radial-gradient(circle at 85% 80%, #c084fc25 0%, transparent 50%),
+    radial-gradient(circle at 50% 50%, #86efac18 0%, transparent 60%);
+}
+
+.wrap{max-width:600px;margin:0 auto;padding:32px 20px 80px}
+
+/* ── HEADER ── */
+.header{text-align:center;margin-bottom:32px}
+.logo{font-family:'Nunito',sans-serif;font-size:32px;font-weight:800;
+  background:linear-gradient(135deg,#c084fc,#f9a8d4,#86efac);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  letter-spacing:-0.5px;margin-bottom:4px}
+.logo-sub{font-size:12px;color:var(--t2);font-weight:500;letter-spacing:0.5px}
+
+/* ── UPLOAD ── */
+.upload-area{
+  border:2.5px dashed var(--t3);border-radius:24px;padding:44px 20px;
+  text-align:center;cursor:pointer;transition:.2s;margin-bottom:20px;
+  position:relative;background:var(--card);box-shadow:var(--shadow)}
+.upload-area:hover{border-color:var(--p1);background:#faf5ff;transform:translateY(-1px)}
+.upload-area input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.upload-icon{font-size:40px;display:block;margin-bottom:10px;animation:float 3s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+.upload-label{color:var(--t2);font-size:13px;font-weight:600}
+.upload-label .hint{font-size:11px;color:var(--t3);margin-top:4px;font-weight:400}
+
+/* ── PREVIEW ── */
+.preview-wrap{display:none;margin-bottom:20px;border-radius:var(--r);overflow:hidden;
+  box-shadow:0 8px 32px #c084fc30;border:2px solid #ede9fe}
+.preview-wrap canvas{width:100%;height:auto;display:block}
+
+/* ── CARD ── */
+.card{background:var(--card);border-radius:var(--r);padding:20px;
+  box-shadow:var(--shadow);margin-bottom:16px;border:1.5px solid #f3e8ff}
+
+/* ── INPUTS ── */
+.input-group{margin-bottom:12px}
+.input-label{font-size:11px;font-weight:700;color:var(--t2);letter-spacing:0.5px;
+  text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:5px}
+.input-field{width:100%;padding:10px 14px;border:2px solid var(--t4);border-radius:12px;
+  font-family:inherit;font-size:13px;outline:none;background:#fdf9ff;color:var(--text);
+  transition:.2s}
+.input-field:focus{border-color:var(--p1);background:#fff;box-shadow:0 0 0 3px #c084fc18}
+.input-field::placeholder{color:var(--t3)}
+.word-row{display:flex;gap:10px}
+.word-row .input-group{flex:1;margin-bottom:0}
+
+/* ── STYLE TABS ── */
+.style-label{font-size:11px;font-weight:700;color:var(--t2);letter-spacing:0.5px;
+  text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:5px}
+.style-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:4px}
+.style-opt{
+  padding:12px 6px 10px;border-radius:12px;border:2px solid var(--t4);
+  display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;
+  transition:.15s;background:#fdf9ff;font-size:11px;font-weight:700;
+  color:var(--t2);text-align:center;user-select:none}
+.style-opt:hover{border-color:var(--p1);background:#faf5ff;transform:translateY(-1px)}
+.style-opt.active{border-color:var(--p1);background:#f5f0ff;color:var(--text);
+  box-shadow:0 2px 12px #c084fc30}
+.style-opt .sicon{font-size:22px;line-height:1}
+.ibox-black{width:24px;height:15px;background:#3d2c4e;border-radius:4px}
+.ibox-white{width:24px;height:15px;background:#fff;border:2px solid #d8b4fe;border-radius:4px}
+.ibox-mosaic{width:24px;height:15px;border-radius:4px;overflow:hidden;
+  background:repeating-conic-gradient(#c084fc 0% 25%,#f9a8d4 0% 50%) 0 0/6px 6px}
+
+/* ── EMOJI PICKER ── */
+.emoji-section{display:none;margin-top:12px}
+.emoji-section.show{display:block}
+.emoji-pick{display:flex;gap:6px;flex-wrap:wrap}
+.emoji-opt{
+  width:40px;height:40px;border-radius:10px;border:2px solid transparent;
+  display:flex;align-items:center;justify-content:center;font-size:22px;
+  cursor:pointer;transition:.12s;background:#fdf9ff}
+.emoji-opt:hover{background:#f0e7ff;transform:scale(1.1)}
+.emoji-opt.active{border-color:var(--p1);background:#f5f0ff;box-shadow:0 2px 8px #c084fc40}
+
+/* ── PROGRESS ── */
+.progress{display:none;align-items:center;gap:10px;padding:4px 0;margin-bottom:4px}
+.progress.show{display:flex}
+.progress-bar{flex:1;height:6px;background:var(--t4);border-radius:3px;overflow:hidden}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--p1),var(--p2));
+  border-radius:3px;transition:width .3s;width:0}
+.progress-text{font-size:11px;color:var(--t2);min-width:50px;font-weight:600}
+
+/* ── FOUND ── */
+.found{display:none;font-size:13px;color:var(--t2);padding:8px 0;margin-bottom:4px}
+.found.show{display:block}
+.found b{color:var(--p1)}
+
+/* ── BUTTONS ── */
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{padding:11px 22px;border-radius:50px;border:none;font-family:inherit;
+  font-size:13px;font-weight:700;cursor:pointer;transition:.15s;display:flex;align-items:center;gap:6px}
+.btn:active{transform:scale(0.97)}
+.btn-scan{
+  background:linear-gradient(135deg,var(--p1),var(--p2));
+  color:#fff;box-shadow:0 4px 16px #c084fc40}
+.btn-scan:hover{opacity:.9;transform:translateY(-1px);box-shadow:0 6px 20px #c084fc50}
+.btn-scan:disabled{opacity:.5;cursor:default;transform:none}
+.btn-download{background:var(--t4);color:var(--text);border:1.5px solid var(--t3)}
+.btn-download:hover{background:#ede9fe;transform:translateY(-1px)}
+.btn-reset{background:transparent;color:var(--t2);border:1.5px solid var(--t4)}
+.btn-reset:hover{border-color:var(--t3);color:var(--text)}
+
+/* ── TOAST ── */
+.toast{
+  position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(60px);
+  background:linear-gradient(135deg,#3d2c4e,#6b21a8);color:#fff;
+  padding:10px 24px;border-radius:50px;font-size:12px;font-weight:700;
+  transition:.3s;opacity:0;z-index:100;pointer-events:none;box-shadow:0 4px 20px #3d2c4e40}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+/* ── LOADING ── */
+.loading-lib{text-align:center;padding:12px;color:var(--t2);font-size:12px;
+  display:none;font-weight:600}
+.loading-lib.show{display:block}
+.loading-lib::before{content:'✿ ';animation:spin 1s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="logo">cover</div>
+    <div class="logo-sub">✿ 단어를 찾아 예쁘게 가려드려요 ✿</div>
+  </div>
+
+  <div class="loading-lib" id="lib-loading">OCR 엔진 로딩 중이에요...</div>
+
+  <div class="upload-area" id="upload-area">
+    <input type="file" accept="image/*" id="file-input" onchange="loadImage(this)"/>
+    <span class="upload-icon">🌸</span>
+    <div class="upload-label">
+      이미지를 올려주세요
+      <div class="hint">또는 클릭해서 선택하기</div>
+    </div>
+  </div>
+
+  <div class="preview-wrap" id="preview-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <div class="controls" id="controls" style="display:none;flex-direction:column;gap:14px">
+
+    <!-- 단어 입력 -->
+    <div class="card">
+      <div class="word-row">
+        <div class="input-group">
+          <div class="input-label">🔤 단어 1</div>
+          <input class="input-field" type="text" id="word1" placeholder="가릴 단어"/>
+        </div>
+        <div class="input-group">
+          <div class="input-label">🔤 단어 2</div>
+          <input class="input-field" type="text" id="word2" placeholder="추가 단어 (선택)"/>
+        </div>
+      </div>
+    </div>
+
+    <!-- 스타일 -->
+    <div class="card">
+      <div class="style-label">🎨 가리기 스타일</div>
+      <div class="style-grid">
+        <div class="style-opt active" data-style="black" onclick="selectStyle('black',this)">
+          <div class="sicon"><div class="ibox-black"></div></div>검정
+        </div>
+        <div class="style-opt" data-style="white" onclick="selectStyle('white',this)">
+          <div class="sicon"><div class="ibox-white"></div></div>흰색
+        </div>
+        <div class="style-opt" data-style="mosaic" onclick="selectStyle('mosaic',this)">
+          <div class="sicon"><div class="ibox-mosaic"></div></div>모자이크
+        </div>
+        <div class="style-opt" data-style="emoji" onclick="selectStyle('emoji',this)">
+          <div class="sicon">🌸</div>이모지
+        </div>
+      </div>
+      <div class="emoji-section" id="emoji-section">
+        <div class="emoji-pick" id="emoji-pick"></div>
+      </div>
+    </div>
+
+    <!-- 버튼 + 결과 -->
+    <div class="card">
+      <div class="progress" id="progress">
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <span class="progress-text" id="progress-text">0%</span>
+      </div>
+      <div class="found" id="found"></div>
+      <div class="btn-row">
+        <button class="btn btn-scan" id="scan-btn" onclick="doScan()">✨ 스캔 &amp; 가리기</button>
+        <button class="btn btn-download" id="dl-btn" onclick="doDownload()" style="display:none">💾 저장</button>
+        <button class="btn btn-reset" onclick="doReset()">초기화</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Tesseract 로드 ──
+let tessReady=false;
+(function loadTess(){
+  const urls=[
+    'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+    'https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js'
+  ];
+  let i=0;
+  function tryNext(){
+    if(i>=urls.length){toast('OCR 엔진 로드 실패');return}
+    const s=document.createElement('script');
+    s.src=urls[i];
+    s.onload=()=>{tessReady=true;document.getElementById('lib-loading').classList.remove('show')};
+    s.onerror=()=>{i++;tryNext()};
+    document.head.appendChild(s);
+  }
+  document.getElementById('lib-loading').classList.add('show');
+  tryNext();
+})();
+
+// ── 상태 ──
+let currentStyle='black';
+let selectedEmoji='🌸';
+let origImg=null, ocrData=null, offCtx=null;
+
+// ── 스타일 선택 ──
+function selectStyle(s,el){
+  currentStyle=s;
+  document.querySelectorAll('.style-opt').forEach(x=>x.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('emoji-section').classList.toggle('show',s==='emoji');
+  if(ocrData) applyCensor();
+}
+
+// ── 이모지 픽커 ──
+const EMOJIS=['🌸','⭐','❤️','🔥','🍀','🎵','✨','🐱','🐶','💜','🩷','🌈','🦋','🍓','🌙','🎀'];
+const ep=document.getElementById('emoji-pick');
+EMOJIS.forEach(e=>{
+  const d=document.createElement('div');
+  d.className='emoji-opt'+(e===selectedEmoji?' active':'');
+  d.textContent=e;
+  d.onclick=()=>{
+    selectedEmoji=e;
+    ep.querySelectorAll('.emoji-opt').forEach(x=>x.classList.remove('active'));
+    d.classList.add('active');
+    if(ocrData) applyCensor();
+  };
+  ep.appendChild(d);
+});
+
+// ── 이미지 로드 ──
+function loadImage(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const img=new Image();
+    img.onload=()=>{
+      origImg=img; ocrData=null; offCtx=null;
+      const canvas=document.getElementById('canvas');
+      canvas.width=img.width; canvas.height=img.height;
+      canvas.getContext('2d').drawImage(img,0,0);
+      document.getElementById('preview-wrap').style.display='block';
+      document.getElementById('upload-area').style.display='none';
+      document.getElementById('controls').style.display='flex';
+      document.getElementById('dl-btn').style.display='none';
+      document.getElementById('found').classList.remove('show');
+    };
+    img.src=e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── OCR용 이미지 전처리: 대비 강화 ──
+function getProcessedCanvas(srcImg){
+  const c=document.createElement('canvas');
+  c.width=srcImg.width; c.height=srcImg.height;
+  const ctx=c.getContext('2d');
+  ctx.drawImage(srcImg,0,0);
+  const id=ctx.getImageData(0,0,c.width,c.height);
+  const d=id.data;
+  // 대비+선명도 강화
+  for(let i=0;i<d.length;i+=4){
+    const avg=(d[i]+d[i+1]+d[i+2])/3;
+    // 임계값 기반 강화: 밝은 배경은 더 밝게, 어두운 텍스트는 더 어둡게
+    const v=avg<180?Math.max(0,avg-30):Math.min(255,avg+20);
+    d[i]=d[i+1]=d[i+2]=v;
+  }
+  ctx.putImageData(id,0,0);
+  return c;
+}
+
+// ── 스캔 ──
+async function doScan(){
+  const w1=document.getElementById('word1').value.trim();
+  const w2=document.getElementById('word2').value.trim();
+  if(!w1&&!w2){toast('가릴 단어를 입력해주세요 🌸');return}
+  if(!origImg){toast('이미지를 먼저 올려주세요');return}
+  if(!tessReady){toast('OCR 엔진 로딩 중... 잠시만요 🌙');return}
+
+  const btn=document.getElementById('scan-btn');
+  btn.disabled=true; btn.textContent='스캔 중...';
+  const fill=document.getElementById('progress-fill');
+  const ptxt=document.getElementById('progress-text');
+  document.getElementById('progress').classList.add('show');
+  fill.style.width='0%'; ptxt.textContent='준비 중...';
+
+  try{
+    // 전처리된 캔버스로 OCR 정확도 향상
+    const processed=getProcessedCanvas(origImg);
+
+    const result=await Tesseract.recognize(processed,'kor+eng',{
+      logger:m=>{
+        if(m.progress!==undefined){
+          const p=Math.round(m.progress*100);
+          fill.style.width=p+'%';
+          ptxt.textContent=m.status==='recognizing text'?p+'%':(m.status||'');
+        }
+      },
+      tessedit_pageseg_mode:'3',  // 자동 페이지 분석
+    });
+    ocrData=result.data;
+    fill.style.width='100%'; ptxt.textContent='완료!';
+
+    const canvas=document.getElementById('canvas');
+    const off=document.createElement('canvas');
+    off.width=canvas.width; off.height=canvas.height;
+    offCtx=off.getContext('2d');
+    offCtx.drawImage(origImg,0,0);
+
+    applyCensor();
+  }catch(e){
+    toast('OCR 실패: '+e.message);
+    console.error(e);
+  }
+  btn.disabled=false; btn.textContent='✨ 스캔 & 가리기';
+}
+
+// ── 가리기 ──
+function applyCensor(){
+  if(!origImg||!ocrData)return;
+  const w1=document.getElementById('word1').value.trim().toLowerCase();
+  const w2=document.getElementById('word2').value.trim().toLowerCase();
+  const searchWords=[w1,w2].filter(Boolean);
+  if(!searchWords.length)return;
+
+  const canvas=document.getElementById('canvas');
+  const ctx=canvas.getContext('2d');
+  ctx.drawImage(origImg,0,0);
+
+  const allWords=ocrData.words||[];
+  let count=0;
+
+  // ── Tesseract lines 데이터로 줄별 top/bottom 확정 ──
+  const wordLineMap=new Map();
+  (ocrData.lines||[]).forEach(line=>{
+    const lw=line.words||[];
+    let t=Infinity,b=-Infinity;
+    lw.forEach(w=>{if(w.bbox.y0<t)t=w.bbox.y0;if(w.bbox.y1>b)b=w.bbox.y1;});
+    lw.forEach(w=>wordLineMap.set(w,{top:t,bottom:b}));
+  });
+  allWords.forEach(w=>{if(!wordLineMap.has(w))wordLineMap.set(w,{top:w.bbox.y0,bottom:w.bbox.y1});});
+
+  // ── 단어 레벨 매칭 ──
+  allWords.forEach(w=>{
+    const txt=(w.text||'').toLowerCase().replace(/[\s\W]/g,'');
+    searchWords.forEach(sw=>{
+      const swClean=sw.replace(/[\s\W]/g,'');
+      if(swClean&&txt.includes(swClean)){
+        const bb=w.bbox;
+        const lb=wordLineMap.get(w);
+        drawCensor(ctx,canvas,bb.x0,lb.top,bb.x1-bb.x0,lb.bottom-lb.top);
+        count++;
+      }
+    });
+  });
+
+  // ── 전체 텍스트 연결 후 재검색 (줄 넘김 케이스) ──
+  // 각 줄의 텍스트를 합쳐서 단어 경계 관계없이 재탐색
+  if(ocrData.lines){
+    ocrData.lines.forEach(line=>{
+      const lineWords=line.words||[];
+      const lineTxt=lineWords.map(w=>w.text||'').join('').toLowerCase().replace(/[\s\W]/g,'');
+      // 줄 전체 top/bottom 미리 계산 (루프 밖에서 한 번만)
+      let lineTop=Infinity,lineBottom=-Infinity;
+      lineWords.forEach(w=>{if(w.bbox.y0<lineTop)lineTop=w.bbox.y0;if(w.bbox.y1>lineBottom)lineBottom=w.bbox.y1;});
+      searchWords.forEach(sw=>{
+        const swClean=sw.replace(/[\s\W]/g,'');
+        if(!swClean)return;
+        let idx=lineTxt.indexOf(swClean);
+        while(idx>=0){
+          let charCount=0;
+          let startW=null,endW=null;
+          for(const w of lineWords){
+            const wTxt=(w.text||'').toLowerCase().replace(/[\s\W]/g,'');
+            if(!startW&&charCount+wTxt.length>idx) startW=w;
+            if(charCount+wTxt.length>=idx+swClean.length){endW=w;break;}
+            charCount+=wTxt.length;
+          }
+          if(startW&&endW){
+            drawCensor(ctx,canvas,startW.bbox.x0,lineTop,endW.bbox.x1-startW.bbox.x0,lineBottom-lineTop);
+            count++;
+          }
+          idx=lineTxt.indexOf(swClean,idx+1);
+        }
+      });
+    });
+  }
+
+  // ── 심볼 레벨 fallback ──
+  if(count===0&&ocrData.symbols){
+    const syms=ocrData.symbols||[];
+    const allText=syms.map(s=>s.text||'').join('').toLowerCase();
+    searchWords.forEach(sw=>{
+      let idx=allText.indexOf(sw);
+      while(idx>=0){
+        const start=syms[idx];
+        const end=syms[Math.min(idx+sw.length-1,syms.length-1)];
+        if(start?.bbox&&end?.bbox){
+          drawCensor(ctx,canvas,start.bbox.x0,start.bbox.y0,end.bbox.x1-start.bbox.x0,end.bbox.y1-start.bbox.y0);
+          count++;
+        }
+        idx=allText.indexOf(sw,idx+1);
+      }
+    });
+  }
+
+  const found=document.getElementById('found');
+  found.innerHTML=count?'<b>'+count+'개</b> 찾아서 가렸어요 🌸':'단어를 찾지 못했어요 😢';
+  found.classList.add('show');
+  document.getElementById('dl-btn').style.display=count?'':'none';
+}
+
+// ── 박스 그리기 ──
+function drawCensor(ctx,canvas,x,y,bw,bh){
+  const pxL=10;
+  const pxR=4;
+  const rx=Math.max(0,x-pxL);
+  const ry=Math.max(0,y);
+  const rw=Math.min(bw+pxL+pxR,canvas.width-rx);
+  const rh=Math.min(bh,canvas.height-ry);
+
+  if(currentStyle==='black'){
+    ctx.fillStyle='#1a0a2e';
+    ctx.beginPath();ctx.roundRect(rx,ry,rw,rh,4);ctx.fill();
+  }else if(currentStyle==='white'){
+    ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.roundRect(rx,ry,rw,rh,4);ctx.fill();
+  }else if(currentStyle==='mosaic'){
+    drawMosaic(ctx,canvas,rx,ry,rw,rh);
+  }else if(currentStyle==='emoji'){
+    // 모자이크 배경 먼저
+    drawMosaic(ctx,canvas,rx,ry,rw,rh);
+    ctx.save();
+    ctx.beginPath();ctx.roundRect(rx,ry,rw,rh,6);ctx.clip();
+    // 이모지 하나만 가운데 - 박스 높이의 75% (잘림 방지)
+    const fontSize=Math.min(60,Math.max(16,Math.round(rh*0.75)));
+    ctx.font=fontSize+'px serif';
+    ctx.textBaseline='middle';
+    ctx.textAlign='center';
+    ctx.fillText(selectedEmoji,rx+rw/2,ry+rh/2);
+    ctx.restore();
+  }
+}
+
+function drawMosaic(ctx,canvas,x,y,w,h){
+  const block=Math.max(4,Math.round(h/4));
+  for(let bx=x;bx<x+w;bx+=block){
+    for(let by=y;by<y+h;by+=block){
+      const sx=Math.min(bx+Math.floor(block/2),canvas.width-1);
+      const sy=Math.min(by+Math.floor(block/2),canvas.height-1);
+      const p=offCtx.getImageData(sx,sy,1,1).data;
+      ctx.fillStyle=`rgb(${p[0]},${p[1]},${p[2]})`;
+      ctx.fillRect(bx,by,Math.min(block,x+w-bx),Math.min(block,y+h-by));
+    }
+  }
+}
+
+// ── 저장 / 초기화 ──
+function doDownload(){
+  const canvas=document.getElementById('canvas');
+  const link=document.createElement('a');
+  link.download='cover_'+Date.now()+'.png';
+  link.href=canvas.toDataURL('image/png');
+  link.click();
+  toast('저장됐어요 🌸');
+}
+
+function doReset(){
+  origImg=null;ocrData=null;offCtx=null;
+  document.getElementById('preview-wrap').style.display='none';
+  document.getElementById('upload-area').style.display='';
+  document.getElementById('controls').style.display='none';
+  document.getElementById('file-input').value='';
+  document.getElementById('word1').value='';
+  document.getElementById('word2').value='';
+  document.getElementById('found').classList.remove('show');
+  document.getElementById('progress').classList.remove('show');
+  document.getElementById('dl-btn').style.display='none';
+}
+
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)}
+</script>
+</body>
+</html>
