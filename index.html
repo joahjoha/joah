@@ -228,7 +228,6 @@ html,body{
       <div class="btn-row">
         <button class="btn btn-scan" id="scan-btn" onclick="doScan()">스캔</button>
         <button class="btn btn-download" id="dl-btn" onclick="doDownload()" style="display:none">저장</button>
-        <button class="btn btn-reset" onclick="doReset()">초기화</button>
       </div>
     </div>
 
@@ -488,13 +487,32 @@ function drawMosaic(ctx,canvas,x,y,w,h){
   }
 }
 
-function doDownload(){
+async function doDownload(){
   const canvas=document.getElementById('canvas');
-  const link=document.createElement('a');
-  link.download='cover_'+Date.now()+'.png';
-  link.href=canvas.toDataURL('image/png');
-  link.click();
-  toast('저장됐어요');
+  const isIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  canvas.toBlob(async blob=>{
+    // iOS: Web Share API로 공유 → 사진에 저장 가능
+    if(isIOS && navigator.share && navigator.canShare){
+      const file=new File([blob],'cover.png',{type:'image/png'});
+      if(navigator.canShare({files:[file]})){
+        try{
+          await navigator.share({files:[file],title:'cover'});
+          return;
+        }catch(e){
+          if(e.name==='AbortError') return; // 사용자가 취소
+        }
+      }
+    }
+    // 일반 다운로드 (Android / PC)
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');
+    link.download='cover_'+Date.now()+'.png';
+    link.href=url;
+    link.click();
+    toast('저장됐어요');
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+  },'image/png');
 }
 
 function doReset(){
