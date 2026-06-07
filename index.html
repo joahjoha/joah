@@ -168,9 +168,9 @@ html,body{
 
 .crop-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center}
 .crop-modal.show{display:flex}
-.crop-box{background:var(--surface);border-radius:14px;padding:20px;width:min(96vw,480px);display:flex;flex-direction:column;gap:14px}
+.crop-box{background:var(--surface);border-radius:14px;padding:20px;width:min(96vw,480px);max-height:90vh;display:flex;flex-direction:column;gap:14px}
 .crop-title{font-size:13px;font-weight:600;color:var(--text)}
-.crop-wrap{position:relative;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;touch-action:none;user-select:none}
+.crop-wrap{position:relative;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;touch-action:none;user-select:none;flex:1;min-height:0}
 .crop-wrap img{display:block;width:100%;height:auto;pointer-events:none}
 .crop-sel{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.4);box-sizing:border-box;cursor:move}
 .crop-handle{position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid #555;box-sizing:border-box}
@@ -404,13 +404,26 @@ function applyCensor(){
   const allWords=ocrData.words||[];
   let count=0;
 
-  // Tesseract lines로 줄별 top/bottom 확정
+  // 줄별 top/bottom 계산 후 평균 높이로 통일
   const wordLineMap=new Map();
+  const lineBoxes=[];
   (ocrData.lines||[]).forEach(line=>{
     const lw=line.words||[];
+    if(!lw.length)return;
     let t=Infinity,b=-Infinity;
     lw.forEach(w=>{if(w.bbox.y0<t)t=w.bbox.y0;if(w.bbox.y1>b)b=w.bbox.y1;});
-    lw.forEach(w=>wordLineMap.set(w,{top:t,bottom:b}));
+    lineBoxes.push({top:t,bottom:b,words:lw});
+  });
+  // 평균 높이 계산
+  const avgH=lineBoxes.length
+    ? Math.round(lineBoxes.reduce((s,l)=>s+(l.bottom-l.top),0)/lineBoxes.length)
+    : 20;
+  // 각 줄 중심 기준으로 평균 높이 적용
+  lineBoxes.forEach(lb=>{
+    const mid=Math.round((lb.top+lb.bottom)/2);
+    const t=mid-Math.round(avgH/2);
+    const b=t+avgH;
+    lb.words.forEach(w=>wordLineMap.set(w,{top:t,bottom:b}));
   });
   allWords.forEach(w=>{if(!wordLineMap.has(w))wordLineMap.set(w,{top:w.bbox.y0,bottom:w.bbox.y1});});
 
