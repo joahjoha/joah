@@ -170,8 +170,8 @@ html,body{
 .crop-modal.show{display:flex}
 .crop-box{background:var(--surface);border-radius:14px;padding:20px;width:min(96vw,480px);max-height:90svh;display:flex;flex-direction:column;gap:14px;overflow:hidden}
 .crop-title{font-size:13px;font-weight:600;color:var(--text);flex-shrink:0}
-.crop-wrap{position:relative;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;touch-action:none;user-select:none;flex:1;min-height:0;max-height:calc(90svh - 120px)}
-.crop-wrap img{display:block;width:100%;height:auto;pointer-events:none}
+.crop-wrap{position:relative;border:1.5px solid var(--border);border-radius:8px;overflow-y:scroll;overflow-x:hidden;touch-action:pan-y;user-select:none;flex:1;min-height:0;-webkit-overflow-scrolling:touch}
+.crop-wrap img{display:block;max-width:100%;height:auto;max-height:calc(90svh - 130px);object-fit:contain;pointer-events:none}
 .crop-sel{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.4);box-sizing:border-box;cursor:move}
 .crop-handle{position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid #555;box-sizing:border-box}
 .crop-handle[data-c=tl]{left:-7px;top:-7px;cursor:nw-resize}
