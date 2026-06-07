@@ -165,6 +165,20 @@ html,body{
   white-space:nowrap;
 }
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+.crop-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center}
+.crop-modal.show{display:flex}
+.crop-box{background:var(--surface);border-radius:14px;padding:20px;width:min(96vw,480px);display:flex;flex-direction:column;gap:14px}
+.crop-title{font-size:13px;font-weight:600;color:var(--text)}
+.crop-wrap{position:relative;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;touch-action:none;user-select:none}
+.crop-wrap img{display:block;width:100%;height:auto;pointer-events:none}
+.crop-sel{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.4);box-sizing:border-box;cursor:move}
+.crop-handle{position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid #555;box-sizing:border-box}
+.crop-handle[data-c=tl]{left:-7px;top:-7px;cursor:nw-resize}
+.crop-handle[data-c=tr]{right:-7px;top:-7px;cursor:ne-resize}
+.crop-handle[data-c=bl]{left:-7px;bottom:-7px;cursor:sw-resize}
+.crop-handle[data-c=br]{right:-7px;bottom:-7px;cursor:se-resize}
+.crop-btns{display:flex;gap:8px;justify-content:flex-end}
 </style>
 </head>
 <body>
@@ -227,10 +241,29 @@ html,body{
       <div class="found" id="found"></div>
       <div class="btn-row">
         <button class="btn btn-scan" id="scan-btn" onclick="doScan()">스캔</button>
+        <button class="btn btn-download" onclick="openCrop()" style="display:none" id="crop-btn">자르기</button>
         <button class="btn btn-download" id="dl-btn" onclick="doDownload()" style="display:none">저장</button>
       </div>
     </div>
 
+  </div>
+</div>
+<div class="crop-modal" id="crop-modal">
+  <div class="crop-box">
+    <div class="crop-title">자르기</div>
+    <div class="crop-wrap" id="crop-wrap">
+      <img id="crop-img" src="" alt=""/>
+      <div class="crop-sel" id="crop-sel">
+        <div class="crop-handle" data-c="tl"></div>
+        <div class="crop-handle" data-c="tr"></div>
+        <div class="crop-handle" data-c="bl"></div>
+        <div class="crop-handle" data-c="br"></div>
+      </div>
+    </div>
+    <div class="crop-btns">
+      <button class="btn btn-reset" onclick="closeCrop()">취소</button>
+      <button class="btn btn-scan" onclick="applyCrop()">적용</button>
+    </div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -297,6 +330,7 @@ function loadImage(input){
       document.getElementById('upload-area').style.display='none';
       document.getElementById('controls').style.display='flex';
       document.getElementById('dl-btn').style.display='none';
+      document.getElementById('crop-btn').style.display='';
       document.getElementById('found').classList.remove('show');
     };
     img.src=e.target.result;
@@ -382,9 +416,9 @@ function applyCensor(){
 
   // 단어 레벨 매칭
   allWords.forEach(w=>{
-    const txt=(w.text||'').toLowerCase().replace(/[\s\W]/g,'');
+    const txt=(w.text||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
     searchWords.forEach(sw=>{
-      const swClean=sw.replace(/[\s\W]/g,'');
+      const swClean=sw.replace(/[^\p{L}\p{N}]/gu,'');
       if(swClean&&txt.includes(swClean)){
         const bb=w.bbox;
         const lb=wordLineMap.get(w);
@@ -398,17 +432,17 @@ function applyCensor(){
   if(ocrData.lines){
     ocrData.lines.forEach(line=>{
       const lineWords=line.words||[];
-      const lineTxt=lineWords.map(w=>w.text||'').join('').toLowerCase().replace(/[\s\W]/g,'');
+      const lineTxt=lineWords.map(w=>w.text||'').join('').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
       let lineTop=Infinity,lineBottom=-Infinity;
       lineWords.forEach(w=>{if(w.bbox.y0<lineTop)lineTop=w.bbox.y0;if(w.bbox.y1>lineBottom)lineBottom=w.bbox.y1;});
       searchWords.forEach(sw=>{
-        const swClean=sw.replace(/[\s\W]/g,'');
+        const swClean=sw.replace(/[^\p{L}\p{N}]/gu,'');
         if(!swClean)return;
         let idx=lineTxt.indexOf(swClean);
         while(idx>=0){
           let charCount=0,startW=null,endW=null;
           for(const w of lineWords){
-            const wTxt=(w.text||'').toLowerCase().replace(/[\s\W]/g,'');
+            const wTxt=(w.text||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
             if(!startW&&charCount+wTxt.length>idx) startW=w;
             if(charCount+wTxt.length>=idx+swClean.length){endW=w;break;}
             charCount+=wTxt.length;
@@ -532,6 +566,97 @@ function toast(m){
   const t=document.getElementById('toast');
   t.textContent=m;t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2000);
+}
+
+// ===== CROP =====
+let _cr={x:0,y:0,w:0,h:0},_dt=null,_ds=null,_rs=null;
+
+function openCrop(){
+  if(!origImg)return;
+  // origImg를 dataURL로 변환해서 img 태그에 세팅
+  const tmp=document.createElement('canvas');
+  tmp.width=origImg.width;tmp.height=origImg.height;
+  tmp.getContext('2d').drawImage(origImg,0,0);
+  const ci=document.getElementById('crop-img');
+  ci.src=tmp.toDataURL();
+  document.getElementById('crop-modal').classList.add('show');
+  // img 로드 완료 후 sel 초기화
+  ci.onload=()=>{
+    const r=ci.getBoundingClientRect();
+    _cr={x:0,y:0,w:r.width,h:r.height};
+    _renderSel();
+    _bindCrop();
+  };
+}
+
+function closeCrop(){document.getElementById('crop-modal').classList.remove('show');}
+
+function _renderSel(){
+  const s=document.getElementById('crop-sel');
+  s.style.left=_cr.x+'px';s.style.top=_cr.y+'px';
+  s.style.width=_cr.w+'px';s.style.height=_cr.h+'px';
+}
+
+function _bindCrop(){
+  const wrap=document.getElementById('crop-wrap');
+  const nw=wrap.cloneNode(true);wrap.parentNode.replaceChild(nw,wrap);
+  const ci=nw.querySelector('img');
+  function gp(e){const r=ci.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top};}
+  function dn(e){
+    const c=e.target.dataset&&e.target.dataset.c;
+    const onSel=e.target.closest&&e.target.closest('#crop-sel');
+    if(!c&&!onSel)return;
+    _ds=gp(e);_rs={..._cr};_dt=c?'h-'+c:'move';
+    e.preventDefault();
+  }
+  function mv(e){
+    if(!_dt)return;
+    const p=gp(e),dx=p.x-_ds.x,dy=p.y-_ds.y;
+    const r=ci.getBoundingClientRect();
+    const W=r.width,H=r.height,MIN=20;
+    let {x,y,w,h}=_rs;
+    if(_dt==='move'){x=Math.max(0,Math.min(W-w,x+dx));y=Math.max(0,Math.min(H-h,y+dy));}
+    else{
+      const c=_dt.slice(2);
+      if(c==='tl'){x=Math.min(x+w-MIN,x+dx);y=Math.min(y+h-MIN,y+dy);w=_rs.x+_rs.w-x;h=_rs.y+_rs.h-y;}
+      else if(c==='tr'){w=Math.max(MIN,w+dx);y=Math.min(y+h-MIN,y+dy);h=_rs.y+_rs.h-y;}
+      else if(c==='bl'){x=Math.min(x+w-MIN,x+dx);w=_rs.x+_rs.w-x;h=Math.max(MIN,h+dy);}
+      else if(c==='br'){w=Math.max(MIN,w+dx);h=Math.max(MIN,h+dy);}
+      x=Math.max(0,x);y=Math.max(0,y);w=Math.min(W-x,w);h=Math.min(H-y,h);
+    }
+    _cr={x,y,w,h};_renderSel();e.preventDefault();
+  }
+  function up(){_dt=null;}
+  nw.addEventListener('mousedown',dn);
+  nw.addEventListener('touchstart',dn,{passive:false});
+  window.addEventListener('mousemove',mv);
+  window.addEventListener('touchmove',mv,{passive:false});
+  window.addEventListener('mouseup',up);
+  window.addEventListener('touchend',up);
+}
+
+function applyCrop(){
+  const ci=document.getElementById('crop-img');
+  const r=ci.getBoundingClientRect();
+  const scaleX=origImg.width/r.width;
+  const scaleY=origImg.height/r.height;
+  const rx=Math.round(_cr.x*scaleX),ry=Math.round(_cr.y*scaleY);
+  const rw=Math.round(_cr.w*scaleX),rh=Math.round(_cr.h*scaleY);
+  const tmp=document.createElement('canvas');
+  tmp.width=rw;tmp.height=rh;
+  tmp.getContext('2d').drawImage(origImg,rx,ry,rw,rh,0,0,rw,rh);
+  const ni=new Image();
+  ni.onload=()=>{
+    origImg=ni;ocrData=null;offCtx=null;
+    const canvas=document.getElementById('canvas');
+    canvas.width=ni.width;canvas.height=ni.height;
+    canvas.getContext('2d').drawImage(ni,0,0);
+    document.getElementById('found').classList.remove('show');
+    document.getElementById('dl-btn').style.display='none';
+    document.getElementById('progress').classList.remove('show');
+    closeCrop();toast('잘랐어요!');
+  };
+  ni.src=tmp.toDataURL();
 }
 </script>
 </body>
