@@ -462,11 +462,28 @@ async function textToImage(){
   lines.forEach((line, i) => {
     ctx.fillText(line, paddingX, paddingY + i * lineHeight);
   });
-  const dataUrl = canvas.toDataURL('image/png');
-  const w = window.open();
-  w.document.write('<img src="' + dataUrl + '" style="max-width:100%">');
-  w.document.title = 'cover_text';
-  toast('길게 눌러서 저장하세요!');
+  canvas.toBlob(async blob => {
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if(isIOS && navigator.share && navigator.canShare){
+      const file = new File([blob], 'cover_text.png', {type:'image/png'});
+      if(navigator.canShare({files:[file]})){
+        try{
+          await navigator.share({files:[file], title:'cover_text'});
+          return;
+        }catch(e){
+          if(e.name==='AbortError') return;
+        }
+      }
+    }
+    // Android / PC 폴백
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = 'cover_text_' + Date.now() + '.png';
+    link.href = url;
+    link.click();
+    toast('저장됐어요');
+    setTimeout(()=>URL.revokeObjectURL(url), 5000);
+  }, 'image/png');
 }
 
 let tessReady=false;
