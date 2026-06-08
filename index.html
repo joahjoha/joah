@@ -203,6 +203,12 @@ html,body{
 .crop-handle[data-c=bl]{left:-7px;bottom:-7px;cursor:sw-resize}
 .crop-handle[data-c=br]{right:-7px;bottom:-7px;cursor:se-resize}
 .crop-btns{display:flex;gap:8px;justify-content:flex-end;flex-shrink:0}
+.bg-picker{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.bg-label{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap}
+.bg-opts{display:flex;gap:6px}
+.bg-opt{width:28px;height:28px;border-radius:8px;border:1.5px solid var(--border);cursor:pointer;transition:.12s;flex-shrink:0}
+.bg-opt:hover{border-color:#a8a29e}
+.bg-opt.active{border-color:var(--text);box-shadow:0 0 0 2px var(--bg),0 0 0 3.5px var(--text)}
 </style>
 </head>
 <body>
@@ -300,6 +306,10 @@ html,body{
     <div class="crop-title">결과</div>
     <div style="position:relative;flex:1;min-height:0">
       <textarea class="result-text" id="result-text" readonly style="width:100%;height:100%;min-height:260px;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;line-height:1.6;resize:none;outline:none;background:#fafaf9;color:var(--text)"></textarea>
+    </div>
+    <div class="bg-picker">
+      <span class="bg-label">배경</span>
+      <div class="bg-opts" id="bg-opts"></div>
     </div>
     <div class="crop-btns" style="display:flex;gap:8px">
       <button class="btn btn-reset" onclick="document.getElementById('result-modal').classList.remove('show')" style="flex:1">닫기</button>
@@ -400,6 +410,30 @@ function copyResult(){
 // 초기 렌더
 renderRules();
 
+// ===== BG COLOR =====
+const BG_COLORS=[
+  {name:'흰색',color:'#ffffff'},
+  {name:'베이지',color:'#faf6f0'},
+  {name:'크림',color:'#fff9e6'},
+  {name:'연핑크',color:'#fff0f0'},
+  {name:'연블루',color:'#f0f4ff'},
+  {name:'연민트',color:'#f0faf6'},
+];
+let selectedBg=BG_COLORS[1].color;
+const bgOpts=document.getElementById('bg-opts');
+BG_COLORS.forEach((b,i)=>{
+  const d=document.createElement('div');
+  d.className='bg-opt'+(i===1?' active':'');
+  d.style.background=b.color;
+  d.title=b.name;
+  d.onclick=()=>{
+    selectedBg=b.color;
+    bgOpts.querySelectorAll('.bg-opt').forEach(x=>x.classList.remove('active'));
+    d.classList.add('active');
+  };
+  bgOpts.appendChild(d);
+});
+
 async function textToImage(){
   const src = document.getElementById('src-text').value;
   if(!src){toast('텍스트를 먼저 입력해주세요');return;}
@@ -441,7 +475,7 @@ async function textToImage(){
   canvas.height = canvasH;
   const ctx = canvas.getContext('2d');
 
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = selectedBg;
   ctx.fillRect(0, 0, canvasW, canvasH);
 
   ctx.fillStyle = '#1c1917';
@@ -455,7 +489,7 @@ async function textToImage(){
   // iOS Safari 호환 — 새 탭으로 열기
   await document.fonts.ready;
   ctx.font = `${fontSize}px ${sysFont}`;
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = selectedBg;
   ctx.fillRect(0, 0, canvasW, canvasH);
   ctx.fillStyle = '#1c1917';
   ctx.textBaseline = 'top';
