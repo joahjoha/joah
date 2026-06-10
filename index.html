@@ -822,23 +822,43 @@ function drawCensor(ctx,canvas,x,y,bw,bh,label){
     ctx.fillText(selectedEmoji,rx+rw/2,ry+rh/2);
     ctx.restore();
   }
-  // 야한 단어 라벨 (ㅂ❤️‍🔥ㅈ) — 하얀 테두리 글씨
+  // 야한 단어 라벨 (ㅂ❤️‍🔥ㅈ) — 하얀 테두리 글씨, 박스 안에만
   if(label){
     ctx.save();
-    let fs=Math.round(rh*0.62);
-    ctx.font=fs+'px sans-serif';
-    while(fs>9&&ctx.measureText(label).width>rw-4){
-      fs--;ctx.font=fs+'px sans-serif';
-    }
+    ctx.beginPath();ctx.rect(rx,ry,rw,rh);ctx.clip(); // 박스 밖은 절대 안 나감
     ctx.textAlign='center';
     ctx.textBaseline='middle';
-    const cx=rx+rw/2, cyl=ry+rh/2+1;
     ctx.lineJoin='round';
-    ctx.lineWidth=Math.max(2,Math.round(fs/6));
-    ctx.strokeStyle='#ffffff';
-    ctx.strokeText(label,cx,cyl);
-    ctx.fillStyle='#1c1917';
-    ctx.fillText(label,cx,cyl);
+    // 안 들어가면 점점 줄임: ㅂ❤️‍🔥ㅈ → ㅂ❤️‍🔥 → ❤️‍🔥
+    const cands=[label,label.replace(/[\u3131-\u3163]$/,''),'❤️‍🔥'];
+    const cx=rx+rw/2, cyl=ry+rh/2+1;
+    let done=false;
+    for(const t of cands){
+      if(done)break;
+      let fs=Math.round(rh*0.58);
+      const minFs=Math.max(9,Math.round(rh*0.34));
+      while(fs>=minFs){
+        ctx.font=fs+'px sans-serif';
+        const lw=Math.max(2,Math.round(fs/6));
+        // 이모지 실제 폭이 측정값보다 넓어서 1.18배 보정
+        const w=ctx.measureText(t).width*1.18+lw*2;
+        if(w<=rw-2){
+          ctx.lineWidth=lw;
+          ctx.strokeStyle='#ffffff';
+          ctx.strokeText(t,cx,cyl);
+          ctx.fillStyle='#1c1917';
+          ctx.fillText(t,cx,cyl);
+          done=true;break;
+        }
+        fs--;
+      }
+    }
+    if(!done){
+      // 최후: 이모지만 박스 높이에 맞춰 (clip이 있어 넘쳐도 잘림)
+      const fs=Math.max(9,Math.round(rh*0.5));
+      ctx.font=fs+'px sans-serif';
+      ctx.fillText('❤️‍🔥',cx,cyl);
+    }
     ctx.restore();
   }
 }
