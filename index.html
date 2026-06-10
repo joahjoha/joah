@@ -279,6 +279,7 @@ html,body{
         <button class="btn btn-scan" id="scan-btn" onclick="doScan()">스캔</button>
         <button class="btn btn-download" onclick="openCrop()" style="display:none" id="crop-btn">자르기</button>
         <button class="btn btn-download" id="dl-btn" onclick="doDownload()" style="display:none">저장</button>
+        <button class="btn btn-reset" id="reset-btn" onclick="doReset()" style="display:none;margin-left:auto">다른 사진</button>
       </div>
     </div>
 
@@ -582,6 +583,7 @@ function loadImage(input){
       document.getElementById('controls').style.display='flex';
       document.getElementById('dl-btn').style.display='none';
       document.getElementById('crop-btn').style.display='';
+      document.getElementById('reset-btn').style.display='';
       document.getElementById('found').classList.remove('show');
     };
     img.src=e.target.result;
@@ -647,12 +649,16 @@ function applyCensor(){
   if(!origImg||!ocrData)return;
   const w1=document.getElementById('word1').value.trim().toLowerCase();
   const w2=document.getElementById('word2').value.trim().toLowerCase();
-  const searchWords=[w1,w2].filter(Boolean);
-  if(!searchWords.length)return;
+  const searchWords=[w1,w2].map(s=>s.replace(/[^\p{L}\p{N}]/gu,'')).filter(Boolean);
   const canvas=document.getElementById('canvas');
   const ctx=canvas.getContext('2d');
   ctx.drawImage(origImg,0,0);
-  let count=0;
+  if(!searchWords.length){
+    document.getElementById('found').classList.remove('show');
+    document.getElementById('dl-btn').style.display='none';
+    return;
+  }
+  const counts=searchWords.map(()=>0); // 단어별로 따로 카운트
 
   // 모든 단어 높이의 중앙값 → 일정한 박스 높이 기준
   const allWords=ocrData.words||[];
@@ -661,48 +667,88 @@ function applyCensor(){
   const padY=Math.round(medH*0.1);
   const fixedH=medH+padY*2;
 
-  // 단어 bbox 기준, 높이는 중앙값으로 고정
+  // 단어 단위 매칭 — 부분 일치면 해당 글자 구간만 가림
   allWords.forEach(w=>{
-    const txt=(w.text||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
-    searchWords.forEach(sw=>{
-      const swClean=sw.replace(/[^\p{L}\p{N}]/gu,'');
-      if(!swClean||!txt.includes(swClean))return;
-      const bb=w.bbox;
-      const cy=Math.round((bb.y0+bb.y1)/2);
-      drawCensor(ctx,canvas,bb.x0,cy-Math.round(fixedH/2),bb.x1-bb.x0,fixedH);
-      count++;
+    // 글자(심볼) 단위 매핑 생성: 정제된 글자 → 심볼 bbox
+    const chars=[];
+    if(w.symbols&&w.symbols.length){
+      w.symbols.forEach(s=>{
+        const t=(s.text||'').toLowerCase();
+        for(const ch of t){
+          if(/[\p{L}\p{N}]/u.test(ch)) chars.push({ch,sym:s});
+        }
+      });
+    }else{
+      const t=(w.text||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+      for(const ch of t) chars.push({ch,sym:null});
+    }
+    const txt=chars.map(c=>c.ch).join('');
+    if(!txt)return;
+    const bb=w.bbox;
+    searchWords.forEach((sw,si)=>{
+      let idx=txt.indexOf(sw);
+      while(idx>=0){
+        const s0=chars[idx].sym, s1=chars[idx+sw.length-1].sym;
+        let x0,x1;
+        if(s0&&s0.bbox&&s1&&s1.bbox&&s1.bbox.x1>s0.bbox.x0){
+          // 심볼 bbox가 있으면 정확히 해당 글자 구간만
+          x0=s0.bbox.x0; x1=s1.bbox.x1;
+        }else{
+          // 없으면 글자 수 비율로 위치 추정
+          const ww=bb.x1-bb.x0;
+          x0=bb.x0+Math.round(ww*idx/txt.length);
+          x1=bb.x0+Math.round(ww*(idx+sw.length)/txt.length);
+        }
+        const cy=Math.round((bb.y0+bb.y1)/2);
+        drawCensor(ctx,canvas,x0,cy-Math.round(fixedH/2),x1-x0,fixedH);
+        counts[si]++;
+        idx=txt.indexOf(sw,idx+1);
+      }
     });
   });
 
-  // 심볼 fallback (단어 인식 실패 시)
-  if(count===0&&ocrData.symbols){
+  // 심볼 fallback — 못 찾은 단어만 (OCR이 단어를 쪼갠 경우 대비)
+  if(ocrData.symbols&&counts.some(c=>c===0)){
     const syms=ocrData.symbols||[];
-    const allText=syms.map(s=>s.text||'').join('').toLowerCase();
-    searchWords.forEach(sw=>{
-      const swClean=sw.replace(/[^\p{L}\p{N}]/gu,'');
-      if(!swClean)return;
-      let idx=allText.indexOf(swClean);
+    const map=[]; let allText='';
+    syms.forEach(s=>{
+      const t=(s.text||'').toLowerCase();
+      for(const ch of t){
+        if(/[\p{L}\p{N}]/u.test(ch)){allText+=ch;map.push(s);}
+      }
+    });
+    searchWords.forEach((sw,si)=>{
+      if(counts[si]>0)return;
+      let idx=allText.indexOf(sw);
       while(idx>=0){
-        const start=syms[idx];
-        const end=syms[Math.min(idx+swClean.length-1,syms.length-1)];
-        if(start?.bbox&&end?.bbox){
+        const start=map[idx];
+        const end=map[Math.min(idx+sw.length-1,map.length-1)];
+        if(start?.bbox&&end?.bbox&&end.bbox.x1>start.bbox.x0){
           const cy=Math.round((start.bbox.y0+start.bbox.y1)/2);
           drawCensor(ctx,canvas,start.bbox.x0,cy-Math.round(fixedH/2),end.bbox.x1-start.bbox.x0,fixedH);
-          count++;
+          counts[si]++;
         }
-        idx=allText.indexOf(swClean,idx+1);
+        idx=allText.indexOf(sw,idx+1);
       }
     });
   }
 
+  const count=counts.reduce((a,b)=>a+b,0);
   const found=document.getElementById('found');
   found.innerHTML=count?'<b>'+count+'곳</b> 가렸어요':'단어를 찾지 못했어요';
   found.classList.add('show');
   document.getElementById('dl-btn').style.display=count?'':'none';
 }
 
+// 스캔 후 단어 입력만 바꿔도 바로 재적용 (재스캔 불필요)
+['word1','word2'].forEach(id=>{
+  document.getElementById(id).addEventListener('input',()=>{
+    if(ocrData) applyCensor();
+  });
+});
+
 function drawCensor(ctx,canvas,x,y,bw,bh){
-  const pxL=10,pxR=4;
+  const pxL=3,pxR=3;
   const rx=Math.max(0,x-pxL);
   const ry=Math.max(0,y);
   const rw=Math.min(bw+pxL+pxR,canvas.width-rx);
@@ -780,6 +826,8 @@ function doReset(){
   document.getElementById('found').classList.remove('show');
   document.getElementById('progress').classList.remove('show');
   document.getElementById('dl-btn').style.display='none';
+  document.getElementById('crop-btn').style.display='none';
+  document.getElementById('reset-btn').style.display='none';
 }
 
 function toast(m){
