@@ -112,6 +112,19 @@ html,body{
 .input-field:focus{border-color:var(--text)}
 .input-field::placeholder{color:#d4cfc9}
 
+/* auto-filter checkbox */
+.auto-row{display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;user-select:none}
+.auto-check{
+  width:18px;height:18px;border-radius:5px;
+  border:1.5px solid var(--border);background:var(--surface);
+  flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  transition:.12s;
+}
+.auto-check.on{background:var(--text);border-color:var(--text)}
+.auto-check.on::after{content:'✓';color:#fff;font-size:12px;line-height:1}
+.auto-label{font-size:13px;color:var(--text)}
+.auto-sub{font-size:11px;color:var(--muted);margin-top:2px}
+
 /* style picker */
 .style-row{display:flex;gap:6px}
 .style-opt{
@@ -245,6 +258,13 @@ html,body{
       <div class="word-row">
         <input class="input-field" type="text" id="word1" placeholder="단어 1"/>
         <input class="input-field" type="text" id="word2" placeholder="단어 2 (선택)"/>
+      </div>
+      <div class="auto-row" onclick="toggleAuto()">
+        <div class="auto-check" id="auto-check"></div>
+        <div>
+          <div class="auto-label">야한 단어 자동 가리기</div>
+          <div class="auto-sub">입력 없이도 알아서 가려줘요</div>
+        </div>
       </div>
     </div>
 
@@ -544,6 +564,16 @@ let tessReady=false;
 let currentStyle='black';
 let selectedEmoji='🌸';
 let origImg=null, ocrData=null, offCtx=null;
+let autoFilter=false;
+
+// 성적인 단어 자동 가림 목록 (검열 회피 표기 방지용)
+const AUTO_WORDS=['보지','자지','섹스','성기','자위','발기','사정','음경','음부','음모','질내','삽입','애무','오르가즘','오르가슴','페니스','클리토리스','정액','정자','난자','콘돔','젖꼭지','유두','자궁','음란','야동','포르노','딜도','바이브레이터','후장','항문섹스','구강성교','펠라','쿤닐링구스','조루','발정','교미','성교','성행위','성관계','자궁구','대음순','지스팟','보짓물','질구','귀두','쿠퍼액','음낭','전립선','회음부','뒷보지','애널','방광'];
+
+function toggleAuto(){
+  autoFilter=!autoFilter;
+  document.getElementById('auto-check').classList.toggle('on',autoFilter);
+  if(ocrData) applyCensor();
+}
 
 function selectStyle(s,el){
   currentStyle=s;
@@ -610,7 +640,7 @@ function getProcessedCanvas(srcImg){
 async function doScan(){
   const w1=document.getElementById('word1').value.trim();
   const w2=document.getElementById('word2').value.trim();
-  if(!w1&&!w2){toast('가릴 단어를 입력해주세요');return}
+  if(!w1&&!w2&&!autoFilter){toast('가릴 단어를 입력하거나 자동 가리기를 켜주세요');return}
   if(!origImg){toast('이미지를 먼저 올려주세요');return}
   if(!tessReady){toast('OCR 엔진 로딩 중...');return}
   const btn=document.getElementById('scan-btn');
@@ -649,7 +679,11 @@ function applyCensor(){
   if(!origImg||!ocrData)return;
   const w1=document.getElementById('word1').value.trim().toLowerCase();
   const w2=document.getElementById('word2').value.trim().toLowerCase();
-  const searchWords=[w1,w2].map(s=>s.replace(/[^\p{L}\p{N}]/gu,'')).filter(Boolean);
+  let searchWords=[w1,w2].map(s=>s.replace(/[^\p{L}\p{N}]/gu,'')).filter(Boolean);
+  if(autoFilter){
+    const auto=AUTO_WORDS.map(s=>s.toLowerCase().replace(/[^\p{L}\p{N}]/gu,''));
+    searchWords=[...new Set([...searchWords,...auto])];
+  }
   const canvas=document.getElementById('canvas');
   const ctx=canvas.getContext('2d');
   ctx.drawImage(origImg,0,0);
@@ -823,6 +857,8 @@ function doReset(){
   document.getElementById('file-input').value='';
   document.getElementById('word1').value='';
   document.getElementById('word2').value='';
+  autoFilter=false;
+  document.getElementById('auto-check').classList.remove('on');
   document.getElementById('found').classList.remove('show');
   document.getElementById('progress').classList.remove('show');
   document.getElementById('dl-btn').style.display='none';
