@@ -782,7 +782,7 @@ function applyCensor(){
 });
 
 function drawCensor(ctx,canvas,x,y,bw,bh){
-  const pxL=Math.max(4,Math.round(bh*0.15)),pxR=Math.max(3,Math.round(bh*0.10));
+  const pxL=Math.max(4,Math.round(bh*0.15)),pxR=Math.max(1,Math.round(bh*0.03));
   const rx=Math.max(0,x-pxL);
   const ry=Math.max(0,y);
   const rw=Math.min(bw+pxL+pxR,canvas.width-rx);
