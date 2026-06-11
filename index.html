@@ -837,9 +837,11 @@ function applyCensor(){
           x0=bb.x0+Math.round(ww*idx/txt.length);
           x1=bb.x0+Math.round(ww*(idx+sw.length)/txt.length);
         }
-        // 한글은 글자폭≈글자높이 → 매칭 글자 수보다 과하게 넓으면 잘라냄 (뒤 글자 침범 방지)
+        // 한글: 실제 글자 폭(첫 심볼 기준)으로 박스 폭 제한 → 뒤 글자 침범 방지
         if(/[\uac00-\ud7a3]/.test(sw)){
-          const maxW=sw.length*medH*1.2;
+          let unit=a.sym&&a.sym.bbox?(a.sym.bbox.x1-a.sym.bbox.x0)/a.cn:(bb.x1-bb.x0)/txt.length;
+          unit=Math.min(unit,medH*1.05);
+          const maxW=sw.length*unit*1.12;
           if(x1-x0>maxW)x1=x0+maxW;
         }
         const cy=Math.round((bb.y0+bb.y1)/2);
@@ -872,9 +874,11 @@ function applyCensor(){
           const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
           const x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
           let x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
-          // 한글 글자 수 기준 폭 클램프
+          // 한글: 실제 글자 폭 기준 클램프
           if(/[\uac00-\ud7a3]/.test(sw)){
-            const maxW=sw.length*medH*1.2;
+            let unit=aw/a.cn;
+            unit=Math.min(unit,medH*1.05);
+            const maxW=sw.length*unit*1.12;
             if(x1-x0>maxW)x1=x0+maxW;
           }
           const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
