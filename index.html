@@ -1070,18 +1070,20 @@ function refineXEdges(x0,x1,cy,h,unit,ideal){
     else if(runS!==null){gaps.push({c:(runS+xx-1)/2+sx,w:xx-runS});runS=null;}
   }
   if(runS!==null)gaps.push({c:(runS+w-1)/2+sx,w:w-runS});
-  if(!gaps.length)return[x0,x1];
-  // 시작 경계: 추정 위치에서 가장 가까운 틈
-  let nx0=x0,d0=unit*0.35;
+  if(!gaps.length)return[x0,x0+ideal];
+  // 시작 경계: 추정 위치에서 가까운 틈 (없으면 그대로)
+  let nx0=x0,d0=unit*0.25;
   gaps.forEach(g=>{
     const d=Math.abs(g.c-x0);
     if(d<d0){d0=d;nx0=g.c;}
   });
-  // 끝 경계: 박스 폭이 ideal에 가장 가까워지는 틈 (추정 위치 ±0.55글자 내)
-  let nx1=x1,dBest=Infinity;
+  // 끝 경계: 시작점 + 글자수×글자폭 으로 '계산'하는 게 기본.
+  // 그 계산 위치 아주 가까이(0.18글자 이내)에 진짜 틈이 있으면 거기로만 미세 보정.
+  // (자간이 빽빽해 경계 틈이 없는 폰트에서 글자 내부 틈에 잘못 붙는 것 방지)
+  const target=nx0+ideal;
+  let nx1=target,dBest=unit*0.18;
   gaps.forEach(g=>{
-    if(Math.abs(g.c-x1)>unit*0.55)return;
-    const d=Math.abs((g.c-nx0)-ideal);
+    const d=Math.abs(g.c-target);
     if(d<dBest){dBest=d;nx1=g.c;}
   });
   if(nx1-nx0>unit*0.6)return[nx0,nx1];
