@@ -837,12 +837,18 @@ function applyCensor(){
           x0=bb.x0+Math.round(ww*idx/txt.length);
           x1=bb.x0+Math.round(ww*(idx+sw.length)/txt.length);
         }
-        // 한글: 실제 글자 폭(첫 심볼 기준)으로 박스 폭 제한 → 뒤 글자 침범 방지
-        if(/[\uac00-\ud7a3]/.test(sw)){
-          let unit=a.sym&&a.sym.bbox?(a.sym.bbox.x1-a.sym.bbox.x0)/a.cn:(bb.x1-bb.x0)/txt.length;
-          unit=Math.min(unit,medH*1.05);
-          const maxW=sw.length*unit*1.12;
-          if(x1-x0>maxW)x1=x0+maxW;
+        // 한글: 이 단어 안 한글 글자들의 평균 폭을 재서 박스를 딱 맞춤 (폰트 자동 적응)
+        if(/^[\uac00-\ud7a3]+$/.test(sw)){
+          let hw=0,hc=0;
+          chars.forEach(c=>{
+            if(/[\uac00-\ud7a3]/.test(c.ch)&&c.sym&&c.sym.bbox){
+              hw+=(c.sym.bbox.x1-c.sym.bbox.x0)/c.cn;hc++;
+            }
+          });
+          const unit=hc?hw/hc:Math.min((bb.x1-bb.x0)/txt.length,medH);
+          const ideal=sw.length*unit;
+          if(x1-x0>ideal*1.06)x1=x0+ideal*1.06;      // 넘치면 자름
+          else if(x1-x0<ideal*0.85)x1=x0+ideal*0.95; // 모자라면 늘림
         }
         const cy=Math.round((bb.y0+bb.y1)/2);
         const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
@@ -874,12 +880,17 @@ function applyCensor(){
           const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
           const x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
           let x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
-          // 한글: 실제 글자 폭 기준 클램프
-          if(/[\uac00-\ud7a3]/.test(sw)){
-            let unit=aw/a.cn;
-            unit=Math.min(unit,medH*1.05);
-            const maxW=sw.length*unit*1.12;
-            if(x1-x0>maxW)x1=x0+maxW;
+          // 한글: 매칭 구간 글자들의 평균 폭으로 박스를 딱 맞춤
+          if(/^[\uac00-\ud7a3]+$/.test(sw)){
+            let hw=0,hc=0;
+            for(let k=idx;k<idx+sw.length&&k<map.length;k++){
+              const m=map[k];
+              if(m?.sym?.bbox){hw+=(m.sym.bbox.x1-m.sym.bbox.x0)/m.cn;hc++;}
+            }
+            const unit=hc?Math.min(hw/hc,medH*1.05):medH;
+            const ideal=sw.length*unit;
+            if(x1-x0>ideal*1.06)x1=x0+ideal*1.06;
+            else if(x1-x0<ideal*0.85)x1=x0+ideal*0.95;
           }
           const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
           const cy2=Math.round((b.sym.bbox.y0+b.sym.bbox.y1)/2);
