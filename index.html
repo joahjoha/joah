@@ -849,6 +849,9 @@ function applyCensor(){
           const ideal=sw.length*unit;
           if(x1-x0>ideal*1.06)x1=x0+ideal*1.06;      // 넘치면 자름
           else if(x1-x0<ideal*0.85)x1=x0+ideal*0.95; // 모자라면 늘림
+          // 실제 픽셀 빈틈에 양끝 스냅
+          const cyy=Math.round((bb.y0+bb.y1)/2);
+          [x0,x1]=refineXEdges(x0,x1,cyy,bb.y1-bb.y0,unit);
         }
         const cy=Math.round((bb.y0+bb.y1)/2);
         const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
@@ -878,8 +881,10 @@ function applyCensor(){
         const b=map[Math.min(idx+sw.length-1,map.length-1)];
         if(a?.sym?.bbox&&b?.sym?.bbox){
           const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
-          const x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
+          let x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
           let x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
+          const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
+          const cy2=Math.round((b.sym.bbox.y0+b.sym.bbox.y1)/2);
           // 한글: 매칭 구간 글자들의 평균 폭으로 박스를 딱 맞춤
           if(/^[\uac00-\ud7a3]+$/.test(sw)){
             let hw=0,hc=0;
@@ -891,9 +896,10 @@ function applyCensor(){
             const ideal=sw.length*unit;
             if(x1-x0>ideal*1.06)x1=x0+ideal*1.06;
             else if(x1-x0<ideal*0.85)x1=x0+ideal*0.95;
+            // 실제 픽셀 빈틈에 양끝 스냅
+            const r2=refineXEdges(x0,x1,cy,fixedH,unit);
+            x0=r2[0];x1=r2[1];
           }
-          const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
-          const cy2=Math.round((b.sym.bbox.y0+b.sym.bbox.y1)/2);
           // 줄이 바뀌는 매칭은 무시, 이미 가린 자리도 무시
           if(x1>x0&&Math.abs(cy-cy2)<fixedH*0.8&&!isCovered(x0,x1,cy)){
             const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
@@ -1032,8 +1038,58 @@ function labelSprite(text){
   return sp;
 }
 
+// 실제 픽셀을 보고 글자 사이 빈틈에 박스 양끝을 스냅 → 폰트 무관 정확한 경계
+function refineXEdges(x0,x1,cy,h,unit){
+  if(!offCtx)return[x0,x1];
+  const cw=offCtx.canvas.width,ch=offCtx.canvas.height;
+  const pad=unit*0.45;
+  const sx=Math.max(0,Math.floor(x0-pad)),ex=Math.min(cw-1,Math.ceil(x1+pad));
+  const sy=Math.max(0,Math.floor(cy-h*0.45)),ey=Math.min(ch-1,Math.ceil(cy+h*0.45));
+  const w=ex-sx+1,hh=ey-sy+1;
+  if(w<6||hh<4)return[x0,x1];
+  let img;
+  try{img=offCtx.getImageData(sx,sy,w,hh).data;}catch(e){return[x0,x1];}
+  const lum=p=>0.299*img[p]+0.587*img[p+1]+0.114*img[p+2];
+  // 배경 밝기 = 영역 전체 중앙값 (글자는 소수라 중앙값≈배경)
+  const ls=[];
+  for(let i=0;i<img.length;i+=20)ls.push(lum(i-(i%4)));
+  ls.sort((a,b)=>a-b);
+  const bg=ls[Math.floor(ls.length/2)];
+  // 세로줄마다 잉크(글자 픽셀) 개수
+  const ink=new Array(w).fill(0);
+  for(let yy=0;yy<hh;yy++){
+    for(let xx=0;xx<w;xx++){
+      if(Math.abs(lum((yy*w+xx)*4)-bg)>50)ink[xx]++;
+    }
+  }
+  const gapThr=Math.max(1,Math.round(hh*0.03));
+  // 추정 위치 주변에서 가장 넓은 빈틈을 찾아 그 중앙으로 스냅
+  function snap(est){
+    const e=Math.round(est)-sx;
+    const r=Math.round(unit*0.35);
+    let best=null,bw=0,runS=null;
+    const from=Math.max(0,e-r),to=Math.min(w-1,e+r);
+    for(let xx=from;xx<=to;xx++){
+      if(ink[xx]<=gapThr){if(runS===null)runS=xx;}
+      else if(runS!==null){
+        const rw=xx-runS;
+        if(rw>bw){bw=rw;best=(runS+xx-1)/2;}
+        runS=null;
+      }
+    }
+    if(runS!==null){
+      const rw=to-runS+1;
+      if(rw>bw){best=(runS+to)/2;}
+    }
+    return best===null?est:best+sx;
+  }
+  const nx0=snap(x0),nx1=snap(x1);
+  if(nx1-nx0>unit*0.6)return[nx0,nx1];
+  return[x0,x1];
+}
+
 function drawCensor(ctx,canvas,x,y,bw,bh,label){
-  const pxL=Math.max(4,Math.round(bh*0.15)),pxR=Math.max(1,Math.round(bh*0.03));
+  const pxL=Math.max(2,Math.round(bh*0.06)),pxR=Math.max(2,Math.round(bh*0.05));
   const rx=Math.max(0,x-pxL);
   const ry=Math.max(0,y);
   const rw=Math.min(bw+pxL+pxR,canvas.width-rx);
