@@ -78,8 +78,20 @@ html,body{
   border-radius:var(--r);overflow:hidden;
   border:1.5px solid var(--border);
   background:var(--surface);
+  position:relative;cursor:pointer;
 }
 .preview-wrap canvas{width:100%;height:auto;display:block}
+.pv-menu{
+  position:absolute;inset:0;background:rgba(0,0,0,.4);
+  display:none;align-items:center;justify-content:center;gap:10px;
+}
+.pv-menu.show{display:flex}
+.pv-btn{
+  padding:11px 18px;border-radius:10px;border:none;
+  background:#fff;color:var(--text);
+  font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;
+  box-shadow:0 2px 10px rgba(0,0,0,.2);
+}
 
 /* controls */
 .controls{display:none;flex-direction:column;gap:0}
@@ -247,8 +259,12 @@ html,body{
     <div class="upload-hint">탭해서 사진첩에서 가져오기</div>
   </div>
 
-  <div class="preview-wrap" id="preview-wrap">
+  <div class="preview-wrap" id="preview-wrap" onclick="togglePvMenu()">
     <canvas id="canvas"></canvas>
+    <div class="pv-menu" id="pv-menu">
+      <button class="pv-btn" onclick="event.stopPropagation();hidePvMenu();openDraw()">✏️ 그리기</button>
+      <button class="pv-btn" onclick="event.stopPropagation();doReset()">🔄 다른 사진</button>
+    </div>
   </div>
 
   <div class="controls" id="controls">
@@ -307,9 +323,7 @@ html,body{
       <div class="btn-row">
         <button class="btn btn-scan" id="scan-btn" onclick="doScan()">스캔</button>
         <button class="btn btn-download" onclick="openCrop()" style="display:none" id="crop-btn">자르기</button>
-        <button class="btn btn-download" onclick="openDraw()" style="display:none" id="draw-btn">그리기</button>
         <button class="btn btn-download" id="dl-btn" onclick="doDownload()" style="display:none">저장</button>
-        <button class="btn btn-reset" id="reset-btn" onclick="doReset()" style="display:none;margin-left:auto">다른 사진</button>
       </div>
     </div>
 
@@ -615,10 +629,10 @@ function toggleCute(){
 
 // 동화풍 순화어 맵 — 무슨 행위인지는 알 정도로만 귀엽게
 const CUTE_MAP={
-  '보지':'꽃잎','자지':'꼬추','섹스':'응응','성기':'거기','자위':'혼자놀이',
-  '발기':'빳빳','사정':'슈웅','음경':'꼬추','음부':'거기','음모':'솜털',
+  '보지':'꽃잎','자지':'꼬치','섹스':'응응','성기':'거기','자위':'혼자놀이',
+  '발기':'빳빳','사정':'슈웅','음경':'꼬치','음부':'거기','음모':'솜털',
   '질내':'안쪽','삽입':'넣기','애무':'쓰담쓰담','오르가즘':'뿅가기','오르가슴':'뿅가기',
-  '페니스':'꼬추','클리토리스':'콩알','정액':'우유','정자':'올챙이','난자':'알',
+  '페니스':'꼬치','클리토리스':'콩알','정액':'우유','정자':'올챙이','난자':'알',
   '콘돔':'풍선','젖꼭지':'꼭지','유두':'꼭지','자궁':'아기집','음란':'야시시',
   '야동':'야한거','포르노':'야한거','딜도':'장난감','바이브레이터':'장난감',
   '후장':'뒷문','항문섹스':'뒷문놀이','구강성교':'입놀이','펠라':'입놀이',
@@ -664,6 +678,14 @@ EMOJIS.forEach(e=>{
   ep.appendChild(d);
 });
 
+let _pvHinted=false;
+function togglePvMenu(){
+  document.getElementById('pv-menu').classList.toggle('show');
+}
+function hidePvMenu(){
+  document.getElementById('pv-menu').classList.remove('show');
+}
+
 function loadImage(input){
   const file=input.files[0];if(!file)return;
   const reader=new FileReader();
@@ -679,9 +701,9 @@ function loadImage(input){
       document.getElementById('controls').style.display='flex';
       document.getElementById('dl-btn').style.display='none';
       document.getElementById('crop-btn').style.display='';
-      document.getElementById('draw-btn').style.display='';
-      document.getElementById('reset-btn').style.display='';
       document.getElementById('found').classList.remove('show');
+      hidePvMenu();
+      if(!_pvHinted){toast('사진을 누르면 그리기 · 사진 바꾸기');_pvHinted=true;}
     };
     img.src=e.target.result;
   };
@@ -1069,8 +1091,7 @@ function doReset(){
   document.getElementById('progress').classList.remove('show');
   document.getElementById('dl-btn').style.display='none';
   document.getElementById('crop-btn').style.display='none';
-  document.getElementById('draw-btn').style.display='none';
-  document.getElementById('reset-btn').style.display='none';
+  hidePvMenu();
 }
 
 function toast(m){
