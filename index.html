@@ -837,18 +837,33 @@ function applyCensor(){
           x0=bb.x0+Math.round(ww*idx/txt.length);
           x1=bb.x0+Math.round(ww*(idx+sw.length)/txt.length);
         }
-        // 한글: 이 단어 안 한글 글자들의 평균 폭을 재서 박스를 딱 맞춤 (폰트 자동 적응)
+        // 한글: 글자 '간격'(연속 글자 시작점 차이)을 재서 박스를 딱 맞춤
+        // 잉크 폭은 글자 사이 여백이 빠져 좁게 나오므로 간격이 정확함
         if(/^[\uac00-\ud7a3]+$/.test(sw)){
-          let hw=0,hc=0;
-          chars.forEach(c=>{
-            if(/[\uac00-\ud7a3]/.test(c.ch)&&c.sym&&c.sym.bbox){
-              hw+=(c.sym.bbox.x1-c.sym.bbox.x0)/c.cn;hc++;
+          let adv=0,ac=0;
+          for(let k=0;k+1<chars.length;k++){
+            const c1=chars[k],c2=chars[k+1];
+            if(c1.sym&&c2.sym&&c1.sym!==c2.sym&&c1.sym.bbox&&c2.sym.bbox
+               &&/[\uac00-\ud7a3]/.test(c1.ch)&&/[\uac00-\ud7a3]/.test(c2.ch)){
+              const dx=c2.sym.bbox.x0-c1.sym.bbox.x0;
+              if(dx>medH*0.4&&dx<medH*1.8){adv+=dx;ac++;}
             }
-          });
-          const unit=hc?hw/hc:Math.min((bb.x1-bb.x0)/txt.length,medH);
+          }
+          let unit;
+          if(ac){unit=adv/ac;}
+          else{
+            let hw=0,hc=0;
+            chars.forEach(c=>{
+              if(/[\uac00-\ud7a3]/.test(c.ch)&&c.sym&&c.sym.bbox){
+                hw+=(c.sym.bbox.x1-c.sym.bbox.x0)/c.cn;hc++;
+              }
+            });
+            // 잉크 폭 기반일 땐 여백 보정 8%
+            unit=hc?(hw/hc)*1.08:Math.min((bb.x1-bb.x0)/txt.length,medH);
+          }
           const ideal=sw.length*unit;
           if(x1-x0>ideal*1.06)x1=x0+ideal*1.06;      // 넘치면 자름
-          else if(x1-x0<ideal*0.85)x1=x0+ideal*0.95; // 모자라면 늘림
+          else if(x1-x0<ideal*0.92)x1=x0+ideal;      // 모자라면 늘림
           // 실제 픽셀 빈틈에 양끝 스냅
           const cyy=Math.round((bb.y0+bb.y1)/2);
           [x0,x1]=refineXEdges(x0,x1,cyy,bb.y1-bb.y0,unit,ideal);
@@ -885,17 +900,29 @@ function applyCensor(){
           let x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
           const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
           const cy2=Math.round((b.sym.bbox.y0+b.sym.bbox.y1)/2);
-          // 한글: 매칭 구간 글자들의 평균 폭으로 박스를 딱 맞춤
+          // 한글: 글자 간격 기반으로 박스를 딱 맞춤
           if(/^[\uac00-\ud7a3]+$/.test(sw)){
-            let hw=0,hc=0;
-            for(let k=idx;k<idx+sw.length&&k<map.length;k++){
-              const m=map[k];
-              if(m?.sym?.bbox){hw+=(m.sym.bbox.x1-m.sym.bbox.x0)/m.cn;hc++;}
+            let adv=0,ac=0;
+            for(let k=Math.max(0,idx-1);k<idx+sw.length&&k+1<map.length;k++){
+              const m1=map[k],m2=map[k+1];
+              if(m1?.sym?.bbox&&m2?.sym?.bbox&&m1.sym!==m2.sym){
+                const dx=m2.sym.bbox.x0-m1.sym.bbox.x0;
+                if(dx>medH*0.4&&dx<medH*1.25){adv+=dx;ac++;}
+              }
             }
-            const unit=hc?Math.min(hw/hc,medH*1.05):medH;
+            let unit;
+            if(ac){unit=adv/ac;}
+            else{
+              let hw=0,hc=0;
+              for(let k=idx;k<idx+sw.length&&k<map.length;k++){
+                const m=map[k];
+                if(m?.sym?.bbox){hw+=(m.sym.bbox.x1-m.sym.bbox.x0)/m.cn;hc++;}
+              }
+              unit=hc?Math.min((hw/hc)*1.08,medH*1.1):medH;
+            }
             const ideal=sw.length*unit;
             if(x1-x0>ideal*1.06)x1=x0+ideal*1.06;
-            else if(x1-x0<ideal*0.85)x1=x0+ideal*0.95;
+            else if(x1-x0<ideal*0.92)x1=x0+ideal;
             // 실제 픽셀 빈틈에 양끝 스냅
             const r2=refineXEdges(x0,x1,cy,fixedH,unit,ideal);
             x0=r2[0];x1=r2[1];
