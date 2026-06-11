@@ -837,6 +837,11 @@ function applyCensor(){
           x0=bb.x0+Math.round(ww*idx/txt.length);
           x1=bb.x0+Math.round(ww*(idx+sw.length)/txt.length);
         }
+        // 한글은 글자폭≈글자높이 → 매칭 글자 수보다 과하게 넓으면 잘라냄 (뒤 글자 침범 방지)
+        if(/[\uac00-\ud7a3]/.test(sw)){
+          const maxW=sw.length*medH*1.2;
+          if(x1-x0>maxW)x1=x0+maxW;
+        }
         const cy=Math.round((bb.y0+bb.y1)/2);
         const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
         drawCensor(ctx,canvas,x0,cy-Math.round(fixedH/2),x1-x0,fixedH,lbl);
@@ -866,7 +871,12 @@ function applyCensor(){
         if(a?.sym?.bbox&&b?.sym?.bbox){
           const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
           const x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
-          const x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
+          let x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
+          // 한글 글자 수 기준 폭 클램프
+          if(/[\uac00-\ud7a3]/.test(sw)){
+            const maxW=sw.length*medH*1.2;
+            if(x1-x0>maxW)x1=x0+maxW;
+          }
           const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
           const cy2=Math.round((b.sym.bbox.y0+b.sym.bbox.y1)/2);
           // 줄이 바뀌는 매칭은 무시, 이미 가린 자리도 무시
