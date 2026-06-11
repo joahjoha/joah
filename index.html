@@ -809,13 +809,12 @@ function applyCensor(){
     if(w.symbols&&w.symbols.length){
       w.symbols.forEach(s=>{
         const t=(s.text||'').toLowerCase();
-        for(const ch of t){
-          if(/[\p{L}\p{N}]/u.test(ch)) chars.push({ch,sym:s});
-        }
+        const cs=[...t].filter(ch=>/[\p{L}\p{N}]/u.test(ch));
+        cs.forEach((ch,ci)=>chars.push({ch,sym:s,ci,cn:cs.length}));
       });
     }else{
       const t=(w.text||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
-      for(const ch of t) chars.push({ch,sym:null});
+      for(const ch of t) chars.push({ch,sym:null,ci:0,cn:1});
     }
     const txt=chars.map(c=>c.ch).join('');
     if(!txt)return;
@@ -824,13 +823,16 @@ function applyCensor(){
       const sw=en.sw;
       let idx=txt.indexOf(sw);
       while(idx>=0){
-        const s0=chars[idx].sym, s1=chars[idx+sw.length-1].sym;
+        const a=chars[idx], b=chars[idx+sw.length-1];
         let x0,x1;
-        if(s0&&s0.bbox&&s1&&s1.bbox&&s1.bbox.x1>s0.bbox.x0){
-          // 심볼 bbox가 있으면 정확히 해당 글자 구간만
-          x0=s0.bbox.x0; x1=s1.bbox.x1;
-        }else{
-          // 없으면 글자 수 비율로 위치 추정
+        if(a.sym&&a.sym.bbox&&b.sym&&b.sym.bbox){
+          // 심볼이 여러 글자를 담고 있으면 그 안에서 비율로 잘라냄 ("루의" 덩어리 → 루 부분만)
+          const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
+          x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
+          x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
+        }
+        if(!(x1>x0)){
+          // 심볼 정보가 없거나 이상하면 글자 수 비율로 추정
           const ww=bb.x1-bb.x0;
           x0=bb.x0+Math.round(ww*idx/txt.length);
           x1=bb.x0+Math.round(ww*(idx+sw.length)/txt.length);
@@ -852,24 +854,26 @@ function applyCensor(){
     const map=[]; let allText='';
     syms.forEach(s=>{
       const t=(s.text||'').toLowerCase();
-      for(const ch of t){
-        if(/[\p{L}\p{N}]/u.test(ch)){allText+=ch;map.push(s);}
-      }
+      const cs=[...t].filter(ch=>/[\p{L}\p{N}]/u.test(ch));
+      cs.forEach((ch,ci)=>{allText+=ch;map.push({sym:s,ci,cn:cs.length});});
     });
     searchWords.forEach((en,si)=>{
       const sw=en.sw;
       let idx=allText.indexOf(sw);
       while(idx>=0){
-        const start=map[idx];
-        const end=map[Math.min(idx+sw.length-1,map.length-1)];
-        if(start?.bbox&&end?.bbox&&end.bbox.x1>start.bbox.x0){
-          const cy=Math.round((start.bbox.y0+start.bbox.y1)/2);
-          const cy2=Math.round((end.bbox.y0+end.bbox.y1)/2);
+        const a=map[idx];
+        const b=map[Math.min(idx+sw.length-1,map.length-1)];
+        if(a?.sym?.bbox&&b?.sym?.bbox){
+          const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
+          const x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
+          const x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
+          const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
+          const cy2=Math.round((b.sym.bbox.y0+b.sym.bbox.y1)/2);
           // 줄이 바뀌는 매칭은 무시, 이미 가린 자리도 무시
-          if(Math.abs(cy-cy2)<fixedH*0.8&&!isCovered(start.bbox.x0,end.bbox.x1,cy)){
+          if(x1>x0&&Math.abs(cy-cy2)<fixedH*0.8&&!isCovered(x0,x1,cy)){
             const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
-            drawCensor(ctx,canvas,start.bbox.x0,cy-Math.round(fixedH/2),end.bbox.x1-start.bbox.x0,fixedH,lbl);
-            drawnRects.push({x0:start.bbox.x0,x1:end.bbox.x1,y0:cy-fixedH/2,y1:cy+fixedH/2});
+            drawCensor(ctx,canvas,x0,cy-Math.round(fixedH/2),x1-x0,fixedH,lbl);
+            drawnRects.push({x0,x1,y0:cy-fixedH/2,y1:cy+fixedH/2});
             counts[si]++;
           }
         }
