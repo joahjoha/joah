@@ -629,10 +629,10 @@ function toggleCute(){
 
 // 동화풍 순화어 맵 — 무슨 행위인지는 알 정도로만 귀엽게
 const CUTE_MAP={
-  '보지':'꽃잎','자지':'꼬치','섹스':'응응','성기':'거기','자위':'혼자놀이',
-  '발기':'빳빳','사정':'슈웅','음경':'꼬치','음부':'거기','음모':'솜털',
+  '보지':'꽃잎','자지':'꼬추','섹스':'응응','성기':'거기','자위':'혼자놀이',
+  '발기':'빳빳','사정':'슈웅','음경':'꼬추','음부':'거기','음모':'솜털',
   '질내':'안쪽','삽입':'넣기','애무':'쓰담쓰담','오르가즘':'뿅가기','오르가슴':'뿅가기',
-  '페니스':'꼬치','클리토리스':'콩알','정액':'우유','정자':'올챙이','난자':'알',
+  '페니스':'꼬추','클리토리스':'콩알','정액':'우유','정자':'올챙이','난자':'알',
   '콘돔':'풍선','젖꼭지':'꼭지','유두':'꼭지','자궁':'아기집','음란':'야시시',
   '야동':'야한거','포르노':'야한거','딜도':'장난감','바이브레이터':'장난감',
   '후장':'뒷문','항문섹스':'뒷문놀이','구강성교':'입놀이','펠라':'입놀이',
@@ -784,6 +784,16 @@ function applyCensor(){
     return;
   }
   const counts=searchWords.map(()=>0); // 단어별로 따로 카운트
+  const drawnRects=[]; // 이미 가린 영역 (fallback 중복 방지용)
+  function isCovered(x0,x1,yc){
+    const h2=fixedH/2;
+    for(const r of drawnRects){
+      const ix=Math.max(0,Math.min(x1,r.x1)-Math.max(x0,r.x0));
+      const iy=Math.max(0,Math.min(yc+h2,r.y1)-Math.max(yc-h2,r.y0));
+      if(ix*iy>0.5*Math.max(1,(x1-x0))*fixedH)return true;
+    }
+    return false;
+  }
 
   // 모든 단어 높이의 중앙값 → 일정한 박스 높이 기준
   const allWords=ocrData.words||[];
@@ -828,14 +838,16 @@ function applyCensor(){
         const cy=Math.round((bb.y0+bb.y1)/2);
         const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
         drawCensor(ctx,canvas,x0,cy-Math.round(fixedH/2),x1-x0,fixedH,lbl);
+        drawnRects.push({x0,x1,y0:cy-fixedH/2,y1:cy+fixedH/2});
         counts[si]++;
         idx=txt.indexOf(sw,idx+1);
       }
     });
   });
 
-  // 심볼 fallback — 못 찾은 단어만 (OCR이 단어를 쪼갠 경우 대비)
-  if(ocrData.symbols&&counts.some(c=>c===0)){
+  // 심볼 fallback — 항상 실행 (OCR이 단어를 쪼갠 경우의 추가 인스턴스도 잡음)
+  // 이미 가린 자리는 건너뛰어 중복 방지
+  if(ocrData.symbols){
     const syms=ocrData.symbols||[];
     const map=[]; let allText='';
     syms.forEach(s=>{
@@ -845,7 +857,6 @@ function applyCensor(){
       }
     });
     searchWords.forEach((en,si)=>{
-      if(counts[si]>0)return;
       const sw=en.sw;
       let idx=allText.indexOf(sw);
       while(idx>=0){
@@ -853,9 +864,14 @@ function applyCensor(){
         const end=map[Math.min(idx+sw.length-1,map.length-1)];
         if(start?.bbox&&end?.bbox&&end.bbox.x1>start.bbox.x0){
           const cy=Math.round((start.bbox.y0+start.bbox.y1)/2);
-          const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
-          drawCensor(ctx,canvas,start.bbox.x0,cy-Math.round(fixedH/2),end.bbox.x1-start.bbox.x0,fixedH,lbl);
-          counts[si]++;
+          const cy2=Math.round((end.bbox.y0+end.bbox.y1)/2);
+          // 줄이 바뀌는 매칭은 무시, 이미 가린 자리도 무시
+          if(Math.abs(cy-cy2)<fixedH*0.8&&!isCovered(start.bbox.x0,end.bbox.x1,cy)){
+            const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
+            drawCensor(ctx,canvas,start.bbox.x0,cy-Math.round(fixedH/2),end.bbox.x1-start.bbox.x0,fixedH,lbl);
+            drawnRects.push({x0:start.bbox.x0,x1:end.bbox.x1,y0:cy-fixedH/2,y1:cy+fixedH/2});
+            counts[si]++;
+          }
         }
         idx=allText.indexOf(sw,idx+1);
       }
