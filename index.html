@@ -825,6 +825,15 @@ function applyCensor(){
       while(idx>=0){
         const a=chars[idx], b=chars[idx+sw.length-1];
         let x0,x1;
+        // 단어가 순수 한글이면: 단어 폭 ÷ 글자 수 = 정확한 글자 간격 → 등분 계산
+        // (한글은 글자 폭이 균일해서 가장 정확. 심볼 좌표의 오차를 우회)
+        const raw=(w.text||'').trim();
+        const pureHangul=raw.length>0&&raw.length===txt.length&&/^[\uac00-\ud7a3]+$/.test(raw);
+        if(pureHangul&&/^[\uac00-\ud7a3]+$/.test(sw)){
+          const unit=(bb.x1-bb.x0)/txt.length;
+          x0=bb.x0+unit*idx;
+          x1=bb.x0+unit*(idx+sw.length);
+        }else{
         if(a.sym&&a.sym.bbox&&b.sym&&b.sym.bbox){
           // 심볼이 여러 글자를 담고 있으면 그 안에서 비율로 잘라냄 ("루의" 덩어리 → 루 부분만)
           const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
@@ -868,6 +877,7 @@ function applyCensor(){
           const cyy=Math.round((bb.y0+bb.y1)/2);
           [x0,x1]=refineXEdges(x0,x1,cyy,bb.y1-bb.y0,unit,ideal);
         }
+        } // end else (비순수 단어 경로)
         const cy=Math.round((bb.y0+bb.y1)/2);
         const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
         drawCensor(ctx,canvas,x0,cy-Math.round(fixedH/2),x1-x0,fixedH,lbl);
