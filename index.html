@@ -621,6 +621,12 @@ function toggleAuto(){
 }
 
 let cuteMode=false;
+let debugMode=false;
+const APP_VER='v12';
+function toggleDebug(){
+  debugMode=!debugMode;
+  if(ocrData)applyCensor();
+}
 function toggleCute(){
   cuteMode=!cuteMode;
   document.getElementById('cute-check').classList.toggle('on',cuteMode);
@@ -950,6 +956,25 @@ function applyCensor(){
     });
   }
 
+  // 진단 모드: OCR이 인식한 단어 영역과 읽은 텍스트를 표시
+  if(debugMode){
+    ctx.save();
+    ctx.lineWidth=Math.max(1,Math.round(medH*0.06));
+    allWords.forEach(w=>{
+      const b=w.bbox;
+      ctx.strokeStyle='rgba(30,100,255,0.85)';
+      ctx.strokeRect(b.x0,b.y0,b.x1-b.x0,b.y1-b.y0);
+      const t=(w.text||'').trim();
+      if(t){
+        const fs=Math.max(9,Math.round(medH*0.42));
+        ctx.font=fs+'px sans-serif';
+        ctx.fillStyle='rgba(220,30,30,0.95)';
+        ctx.fillText(t,b.x0,Math.max(fs,b.y0-2));
+      }
+    });
+    ctx.restore();
+  }
+
   const count=counts.reduce((a,b)=>a+b,0);
   const found=document.getElementById('found');
   let msg=count?'<b>'+count+'곳</b> 가렸어요':'단어를 찾지 못했어요';
@@ -958,6 +983,7 @@ function applyCensor(){
   if(missed.length){
     msg+='<br/>"'+missed.join('", "')+'" 못 찾았어요 — 글씨 인식이 안 된 걸 수 있어요. 그리기로 직접 가려보세요';
   }
+  msg+=' <span onclick="toggleDebug()" style="text-decoration:underline;cursor:pointer;opacity:.6">🔍</span><span style="opacity:.35;font-size:10px"> '+APP_VER+'</span>';
   found.innerHTML=msg;
   found.classList.add('show');
   document.getElementById('dl-btn').style.display=count?'':'none';
