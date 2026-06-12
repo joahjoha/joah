@@ -622,7 +622,7 @@ function toggleAuto(){
 
 let cuteMode=false;
 let debugMode=false;
-const APP_VER='v14';
+const APP_VER='v15';
 function toggleDebug(){
   debugMode=!debugMode;
   if(ocrData)applyCensor();
@@ -1155,28 +1155,28 @@ function refineXEdges(x0,x1,cy,h,unit,ideal){
     }
   }
   const gapThr=Math.max(1,Math.round(hh*0.03));
-  // 빈틈(run)들의 중앙 좌표 수집
+  // 빈틈(run)들의 시작/끝/중앙 좌표 수집
   const gaps=[];let runS=null;
   for(let xx=0;xx<w;xx++){
     if(ink[xx]<=gapThr){if(runS===null)runS=xx;}
-    else if(runS!==null){gaps.push({c:(runS+xx-1)/2+sx,w:xx-runS});runS=null;}
+    else if(runS!==null){gaps.push({s:runS+sx,e:xx-1+sx,c:(runS+xx-1)/2+sx});runS=null;}
   }
-  if(runS!==null)gaps.push({c:(runS+w-1)/2+sx,w:w-runS});
+  if(runS!==null)gaps.push({s:runS+sx,e:w-1+sx,c:(runS+w-1)/2+sx});
   if(!gaps.length)return[x0,x0+ideal];
-  // 시작 경계: 추정 위치에서 가까운 틈 (없으면 그대로)
-  let nx0=x0,d0=unit*0.25;
+  // 시작 경계: 틈의 '오른쪽 끝'(=글자 잉크 시작 직전)으로
+  // 띄어쓰기가 넓어도 박스가 왼쪽으로 밀리지 않음
+  let nx0=x0,d0=unit*0.45;
   gaps.forEach(g=>{
-    const d=Math.abs(g.c-x0);
-    if(d<d0){d0=d;nx0=g.c;}
+    const d=Math.abs(g.e-x0);
+    if(d<d0){d0=d;nx0=g.e;}
   });
-  // 끝 경계: 시작점 + 글자수×글자폭 으로 '계산'하는 게 기본.
-  // 그 계산 위치 아주 가까이(0.18글자 이내)에 진짜 틈이 있으면 거기로만 미세 보정.
-  // (자간이 빽빽해 경계 틈이 없는 폰트에서 글자 내부 틈에 잘못 붙는 것 방지)
+  // 끝 경계: 시작 + 글자수×간격 = 다음 글자 잉크 시작 지점.
+  // 그 직전 틈의 중앙으로 살짝 안쪽 스냅 (다음 글자 안 건드림)
   const target=nx0+ideal;
-  let nx1=target,dBest=unit*0.18;
+  let nx1=target-unit*0.06,dBest=unit*0.35;
   gaps.forEach(g=>{
-    const d=Math.abs(g.c-target);
-    if(d<dBest){dBest=d;nx1=g.c;}
+    const d=Math.abs(g.e-target);
+    if(d<dBest){dBest=d;nx1=Math.max(g.c,g.e-2);}
   });
   if(nx1-nx0>unit*0.6)return[nx0,nx1];
   return[x0,x1];
