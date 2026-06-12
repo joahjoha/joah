@@ -622,7 +622,7 @@ function toggleAuto(){
 
 let cuteMode=false;
 let debugMode=false;
-const APP_VER='v13';
+const APP_VER='v14';
 function toggleDebug(){
   debugMode=!debugMode;
   if(ocrData)applyCensor();
@@ -853,6 +853,7 @@ function applyCensor(){
           x1=bb.x0+Math.round(ww*(idx+sw.length)/txt.length);
         }
         } // end else (비순수 단어 경로)
+        let dbgInfo='';
         // 한글 단어: 끝점은 OCR을 믿지 않고 픽셀에서 잰 간격으로 '계산'
         // x1 = x0 + 글자수 × 간격. OCR이 단어를 쪼개거나 ㅏㅣ를 빼먹어도 무관.
         if(/^[\uac00-\ud7a3]+$/.test(sw)){
@@ -866,10 +867,18 @@ function applyCensor(){
           const ideal=sw.length*unitF;
           x1=x0+ideal;
           [x0,x1]=refineXEdges(x0,x1,cyy,gh,unitF,ideal);
+          dbgInfo='W A:'+(A||'x')+' u:'+Math.round(unitF)+' e:'+Math.round(estUnit)+' gh:'+gh;
         }
         const cy=Math.round((bb.y0+bb.y1)/2);
         const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
         drawCensor(ctx,canvas,x0,cy-Math.round(fixedH/2),x1-x0,fixedH,lbl);
+        if(debugMode&&dbgInfo){
+          ctx.save();
+          ctx.font=Math.max(9,Math.round(medH*0.38))+'px monospace';
+          ctx.fillStyle='#0a7d2c';
+          ctx.fillText(dbgInfo,x0,cy+fixedH*0.95);
+          ctx.restore();
+        }
         drawnRects.push({x0,x1,y0:cy-fixedH/2,y1:cy+fixedH/2});
         counts[si]++;
         idx=txt.indexOf(sw,idx+1);
@@ -900,6 +909,7 @@ function applyCensor(){
           const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
           const cy2=Math.round((b.sym.bbox.y0+b.sym.bbox.y1)/2);
           // 한글: 끝점은 픽셀에서 잰 간격으로 계산 (OCR 좌표 오류 무관)
+          let dbgF='';
           if(/^[\uac00-\ud7a3]+$/.test(sw)){
             let estUnit=(x1-x0)/sw.length;
             if(!(estUnit>2)||estUnit>medH*1.4)estUnit=medH;
@@ -910,13 +920,29 @@ function applyCensor(){
             x1=x0+ideal;
             const r2=refineXEdges(x0,x1,cy,fixedH,unitF,ideal);
             x0=r2[0];x1=r2[1];
+            dbgF='F A:'+(A||'x')+' u:'+Math.round(unitF)+' e:'+Math.round(estUnit);
           }
           // 줄이 바뀌는 매칭은 무시, 이미 가린 자리도 무시
           if(x1>x0&&Math.abs(cy-cy2)<fixedH*0.8&&!isCovered(x0,x1,cy)){
             const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
             drawCensor(ctx,canvas,x0,cy-Math.round(fixedH/2),x1-x0,fixedH,lbl);
+            if(debugMode&&dbgF){
+              ctx.save();
+              ctx.font=Math.max(9,Math.round(medH*0.38))+'px monospace';
+              ctx.fillStyle='#0a7d2c';
+              ctx.fillText(dbgF,x0,cy+fixedH*0.95);
+              ctx.restore();
+            }
             drawnRects.push({x0,x1,y0:cy-fixedH/2,y1:cy+fixedH/2});
             counts[si]++;
+          }else if(debugMode){
+            // 스킵된 매칭 표시 (줄바뀜 cy차이 / 중복)
+            ctx.save();
+            ctx.font=Math.max(9,Math.round(medH*0.38))+'px monospace';
+            ctx.fillStyle='#d97706';
+            const why=Math.abs(cy-cy2)>=fixedH*0.8?'skip:line(cy'+Math.abs(cy-cy2)+')':'skip:dup';
+            ctx.fillText(why,x0,cy+fixedH*0.95);
+            ctx.restore();
           }
         }
         idx=allText.indexOf(sw,idx+1);
