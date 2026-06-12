@@ -622,7 +622,7 @@ function toggleAuto(){
 
 let cuteMode=false;
 let debugMode=false;
-const APP_VER='v16';
+const APP_VER='v17';
 function toggleDebug(){
   debugMode=!debugMode;
   if(ocrData)applyCensor();
@@ -717,10 +717,16 @@ function loadImage(input){
 }
 
 function getProcessedCanvas(srcImg){
+  // 글자가 작으면 확대 (OCR은 글자 높이 50~60px 부근에서 가장 정확)
+  let k=Math.min(2,Math.max(1,1900/srcImg.width));
+  // 너무 큰 이미지는 메모리 보호
+  if(srcImg.width*k>3000)k=Math.max(1,3000/srcImg.width);
   const c=document.createElement('canvas');
-  c.width=srcImg.width; c.height=srcImg.height;
+  c.width=Math.round(srcImg.width*k); c.height=Math.round(srcImg.height*k);
   const ctx=c.getContext('2d');
-  ctx.drawImage(srcImg,0,0);
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.drawImage(srcImg,0,0,c.width,c.height);
   const id=ctx.getImageData(0,0,c.width,c.height);
   const d=id.data;
   for(let i=0;i<d.length;i+=4){
@@ -729,7 +735,37 @@ function getProcessedCanvas(srcImg){
     d[i]=d[i+1]=d[i+2]=v;
   }
   ctx.putImageData(id,0,0);
-  return c;
+  return {canvas:c,k};
+}
+
+// OCR 좌표를 원본 이미지 크기로 환산
+function unscaleOcr(data,k){
+  if(k===1)return;
+  const seen=new Set();
+  const fix=b=>{
+    if(!b||seen.has(b))return;seen.add(b);
+    b.x0/=k;b.x1/=k;b.y0/=k;b.y1/=k;
+  };
+  (data.words||[]).forEach(w=>{
+    fix(w.bbox);
+    (w.symbols||[]).forEach(s=>fix(s.bbox));
+  });
+  (data.symbols||[]).forEach(s=>fix(s.bbox));
+}
+
+// 워커 재사용 + 정확도 파라미터 (PSM 6: 단일 텍스트 블록 — 세로획 오인식 대폭 감소)
+let tessWorker=null,onProg=null;
+async function getTessWorker(){
+  if(tessWorker)return tessWorker;
+  tessWorker=await Tesseract.createWorker('kor+eng',1,{
+    logger:m=>{if(onProg)onProg(m);}
+  });
+  await tessWorker.setParameters({
+    tessedit_pageseg_mode:'6',
+    preserve_interword_spaces:'1',
+    user_defined_dpi:'300'
+  });
+  return tessWorker;
 }
 
 async function doScan(){
@@ -745,16 +781,17 @@ async function doScan(){
   document.getElementById('progress').classList.add('show');
   fill.style.width='0%'; ptxt.textContent='0%';
   try{
-    const processed=getProcessedCanvas(origImg);
-    const result=await Tesseract.recognize(processed,'kor+eng',{
-      logger:m=>{
-        if(m.progress!==undefined){
-          const p=Math.round(m.progress*100);
-          fill.style.width=p+'%';
-          ptxt.textContent=m.status==='recognizing text'?p+'%':'';
-        }
+    const {canvas:processed,k}=getProcessedCanvas(origImg);
+    onProg=m=>{
+      if(m.progress!==undefined){
+        const p=Math.round(m.progress*100);
+        fill.style.width=p+'%';
+        ptxt.textContent=m.status==='recognizing text'?p+'%':'';
       }
-    });
+    };
+    const worker=await getTessWorker();
+    const result=await worker.recognize(processed);
+    unscaleOcr(result.data,k);
     ocrData=result.data;
     fill.style.width='100%'; ptxt.textContent='100%';
     const canvas=document.getElementById('canvas');
