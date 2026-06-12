@@ -622,7 +622,7 @@ function toggleAuto(){
 
 let cuteMode=false;
 let debugMode=false;
-const APP_VER='v12';
+const APP_VER='v13';
 function toggleDebug(){
   debugMode=!debugMode;
   if(ocrData)applyCensor();
@@ -852,38 +852,21 @@ function applyCensor(){
           x0=bb.x0+Math.round(ww*idx/txt.length);
           x1=bb.x0+Math.round(ww*(idx+sw.length)/txt.length);
         }
-        // 한글: 글자 '간격'(연속 글자 시작점 차이)을 재서 박스를 딱 맞춤
-        // 잉크 폭은 글자 사이 여백이 빠져 좁게 나오므로 간격이 정확함
-        if(/^[\uac00-\ud7a3]+$/.test(sw)){
-          let adv=0,ac=0;
-          for(let k=0;k+1<chars.length;k++){
-            const c1=chars[k],c2=chars[k+1];
-            if(c1.sym&&c2.sym&&c1.sym!==c2.sym&&c1.sym.bbox&&c2.sym.bbox
-               &&/[\uac00-\ud7a3]/.test(c1.ch)&&/[\uac00-\ud7a3]/.test(c2.ch)){
-              const dx=c2.sym.bbox.x0-c1.sym.bbox.x0;
-              if(dx>medH*0.4&&dx<medH*1.8){adv+=dx;ac++;}
-            }
-          }
-          let unit;
-          if(ac){unit=adv/ac;}
-          else{
-            let hw=0,hc=0;
-            chars.forEach(c=>{
-              if(/[\uac00-\ud7a3]/.test(c.ch)&&c.sym&&c.sym.bbox){
-                hw+=(c.sym.bbox.x1-c.sym.bbox.x0)/c.cn;hc++;
-              }
-            });
-            // 잉크 폭 기반일 땐 여백 보정 8%
-            unit=hc?(hw/hc)*1.08:Math.min((bb.x1-bb.x0)/txt.length,medH);
-          }
-          const ideal=sw.length*unit;
-          if(x1-x0>ideal*1.06)x1=x0+ideal*1.06;      // 넘치면 자름
-          else if(x1-x0<ideal*0.92)x1=x0+ideal;      // 모자라면 늘림
-          // 실제 픽셀 빈틈에 양끝 스냅
-          const cyy=Math.round((bb.y0+bb.y1)/2);
-          [x0,x1]=refineXEdges(x0,x1,cyy,bb.y1-bb.y0,unit,ideal);
-        }
         } // end else (비순수 단어 경로)
+        // 한글 단어: 끝점은 OCR을 믿지 않고 픽셀에서 잰 간격으로 '계산'
+        // x1 = x0 + 글자수 × 간격. OCR이 단어를 쪼개거나 ㅏㅣ를 빼먹어도 무관.
+        if(/^[\uac00-\ud7a3]+$/.test(sw)){
+          const cyy=Math.round((bb.y0+bb.y1)/2);
+          const gh=Math.max(8,bb.y1-bb.y0);
+          let estUnit=(x1-x0)/sw.length;
+          if(!(estUnit>2)||estUnit>medH*1.4)estUnit=Math.min((bb.x1-bb.x0)/txt.length,medH);
+          estUnit=Math.max(estUnit,medH*0.55);
+          const A=measureAdvance(x0,cyy,gh);     // 픽셀 자기상관 간격
+          const unitF=A||estUnit;
+          const ideal=sw.length*unitF;
+          x1=x0+ideal;
+          [x0,x1]=refineXEdges(x0,x1,cyy,gh,unitF,ideal);
+        }
         const cy=Math.round((bb.y0+bb.y1)/2);
         const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
         drawCensor(ctx,canvas,x0,cy-Math.round(fixedH/2),x1-x0,fixedH,lbl);
@@ -916,31 +899,16 @@ function applyCensor(){
           let x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
           const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
           const cy2=Math.round((b.sym.bbox.y0+b.sym.bbox.y1)/2);
-          // 한글: 글자 간격 기반으로 박스를 딱 맞춤
+          // 한글: 끝점은 픽셀에서 잰 간격으로 계산 (OCR 좌표 오류 무관)
           if(/^[\uac00-\ud7a3]+$/.test(sw)){
-            let adv=0,ac=0;
-            for(let k=Math.max(0,idx-1);k<idx+sw.length&&k+1<map.length;k++){
-              const m1=map[k],m2=map[k+1];
-              if(m1?.sym?.bbox&&m2?.sym?.bbox&&m1.sym!==m2.sym){
-                const dx=m2.sym.bbox.x0-m1.sym.bbox.x0;
-                if(dx>medH*0.4&&dx<medH*1.25){adv+=dx;ac++;}
-              }
-            }
-            let unit;
-            if(ac){unit=adv/ac;}
-            else{
-              let hw=0,hc=0;
-              for(let k=idx;k<idx+sw.length&&k<map.length;k++){
-                const m=map[k];
-                if(m?.sym?.bbox){hw+=(m.sym.bbox.x1-m.sym.bbox.x0)/m.cn;hc++;}
-              }
-              unit=hc?Math.min((hw/hc)*1.08,medH*1.1):medH;
-            }
-            const ideal=sw.length*unit;
-            if(x1-x0>ideal*1.06)x1=x0+ideal*1.06;
-            else if(x1-x0<ideal*0.92)x1=x0+ideal;
-            // 실제 픽셀 빈틈에 양끝 스냅
-            const r2=refineXEdges(x0,x1,cy,fixedH,unit,ideal);
+            let estUnit=(x1-x0)/sw.length;
+            if(!(estUnit>2)||estUnit>medH*1.4)estUnit=medH;
+            estUnit=Math.max(estUnit,medH*0.55);
+            const A=measureAdvance(x0,cy,Math.max(8,Math.round(fixedH)));
+            const unitF=A||estUnit;
+            const ideal=sw.length*unitF;
+            x1=x0+ideal;
+            const r2=refineXEdges(x0,x1,cy,fixedH,unitF,ideal);
             x0=r2[0];x1=r2[1];
           }
           // 줄이 바뀌는 매칭은 무시, 이미 가린 자리도 무시
@@ -1099,6 +1067,41 @@ function labelSprite(text){
   const sp=maxX<0?null:{canvas:oc,sx:minX,sy:minY,sw:maxX-minX+1,sh:maxY-minY+1};
   _spriteCache[text]=sp;
   return sp;
+}
+
+// 잉크 패턴의 반복 주기(자기상관)로 글자 간격을 픽셀에서 직접 측정
+// OCR 좌표가 엉망이어도 영향받지 않는 진짜 간격
+function measureAdvance(x0,cy,h){
+  if(!offCtx)return null;
+  const cw=offCtx.canvas.width,ch=offCtx.canvas.height;
+  const sx=Math.max(0,Math.floor(x0-h*0.3));
+  const ex=Math.min(cw-1,Math.ceil(x0+h*7));
+  const sy=Math.max(0,Math.floor(cy-h*0.45)),ey=Math.min(ch-1,Math.ceil(cy+h*0.45));
+  const w=ex-sx+1,hh=ey-sy+1;
+  if(w<h*2.2||hh<4)return null;
+  let img;
+  try{img=offCtx.getImageData(sx,sy,w,hh).data;}catch(e){return null;}
+  const lum=p=>0.299*img[p]+0.587*img[p+1]+0.114*img[p+2];
+  const ls=[];
+  for(let i=0;i<img.length;i+=20)ls.push(lum(i-(i%4)));
+  ls.sort((a,b)=>a-b);
+  const bg=ls[ls.length>>1];
+  const prof=new Float32Array(w);
+  for(let yy=0;yy<hh;yy++){
+    for(let xx=0;xx<w;xx++){
+      if(Math.abs(lum((yy*w+xx)*4)-bg)>50)prof[xx]++;
+    }
+  }
+  let mean=0;for(let i=0;i<w;i++)mean+=prof[i];mean/=w;
+  for(let i=0;i<w;i++)prof[i]-=mean;
+  const lo=Math.max(4,Math.floor(h*0.55)),hi=Math.min(w-2,Math.ceil(h*1.45));
+  let bestLag=0,bestV=-Infinity;
+  for(let lag=lo;lag<=hi;lag++){
+    let s=0,n=0;
+    for(let i=0;i+lag<w;i++){s+=prof[i]*prof[i+lag];n++;}
+    if(n>0){const v=s/n;if(v>bestV){bestV=v;bestLag=lag;}}
+  }
+  return bestLag>0&&bestV>0?bestLag:null;
 }
 
 // 실제 픽셀을 보고 글자 사이 빈틈에 박스 양끝을 스냅 → 폰트 무관 정확한 경계
