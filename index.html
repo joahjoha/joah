@@ -622,7 +622,7 @@ function toggleAuto(){
 
 let cuteMode=false;
 let debugMode=false;
-const APP_VER='v15';
+const APP_VER='v16';
 function toggleDebug(){
   debugMode=!debugMode;
   if(ocrData)applyCensor();
@@ -862,8 +862,15 @@ function applyCensor(){
           let estUnit=(x1-x0)/sw.length;
           if(!(estUnit>2)||estUnit>medH*1.4)estUnit=Math.min((bb.x1-bb.x0)/txt.length,medH);
           estUnit=Math.max(estUnit,medH*0.55);
-          const A=measureAdvance(x0,cyy,gh);     // 픽셀 자기상관 간격
-          const unitF=A||estUnit;
+          const A=measureAdvance3(x0,cyy,medH); // 픽셀 자기상관 간격 (3지점 중앙값)
+          // A · OCR추정 · 글자높이×0.97 셋의 중앙값 — 하나가 틀려도 안전
+          const ref=medH*0.97;
+          let unitF;
+          if(A){
+            const arr=[A,estUnit,ref].sort((p,q)=>p-q);unitF=arr[1];
+          }else{
+            unitF=Math.abs(estUnit-ref)<=medH*0.2?estUnit:ref;
+          }
           const ideal=sw.length*unitF;
           x1=x0+ideal;
           [x0,x1]=refineXEdges(x0,x1,cyy,gh,unitF,ideal);
@@ -914,8 +921,14 @@ function applyCensor(){
             let estUnit=(x1-x0)/sw.length;
             if(!(estUnit>2)||estUnit>medH*1.4)estUnit=medH;
             estUnit=Math.max(estUnit,medH*0.55);
-            const A=measureAdvance(x0,cy,Math.max(8,Math.round(fixedH)));
-            const unitF=A||estUnit;
+            const A=measureAdvance3(x0,cy,medH);
+            const ref=medH*0.97;
+            let unitF;
+            if(A){
+              const arr=[A,estUnit,ref].sort((p,q)=>p-q);unitF=arr[1];
+            }else{
+              unitF=Math.abs(estUnit-ref)<=medH*0.2?estUnit:ref;
+            }
             const ideal=sw.length*unitF;
             x1=x0+ideal;
             const r2=refineXEdges(x0,x1,cy,fixedH,unitF,ideal);
@@ -1120,14 +1133,39 @@ function measureAdvance(x0,cy,h){
   }
   let mean=0;for(let i=0;i<w;i++)mean+=prof[i];mean/=w;
   for(let i=0;i<w;i++)prof[i]-=mean;
-  const lo=Math.max(4,Math.floor(h*0.55)),hi=Math.min(w-2,Math.ceil(h*1.45));
-  let bestLag=0,bestV=-Infinity;
+  // 한글 간격은 글자높이의 0.72~1.18배 — 그 밖(띄어쓰기 왜곡·하위 주기)은 제외
+  const lo=Math.max(4,Math.floor(h*0.72)),hi=Math.min(w-2,Math.ceil(h*1.18));
+  if(hi<=lo)return null;
+  const V=new Float32Array(hi+1);
+  let vmax=-Infinity;
   for(let lag=lo;lag<=hi;lag++){
     let s=0,n=0;
     for(let i=0;i+lag<w;i++){s+=prof[i]*prof[i+lag];n++;}
-    if(n>0){const v=s/n;if(v>bestV){bestV=v;bestLag=lag;}}
+    V[lag]=n>0?s/n:-Infinity;
+    if(V[lag]>vmax)vmax=V[lag];
   }
-  return bestLag>0&&bestV>0?bestLag:null;
+  if(!(vmax>0))return null;
+  // 가장 강한 피크가 아니라 '충분히 강한(85%+) 피크 중 가장 작은 것' = 기본 주기
+  for(let lag=lo;lag<=hi;lag++){
+    if(V[lag]>=vmax*0.85
+       &&(lag===lo||V[lag]>=V[lag-1])
+       &&(lag===hi||V[lag]>=V[lag+1])){
+      return lag;
+    }
+  }
+  return null;
+}
+
+// 세 위치에서 재서 중앙값 — 한 곳이 빗나가도 안전
+function measureAdvance3(x0,cy,h){
+  const vals=[];
+  [0,Math.round(h*2),Math.round(h*4)].forEach(off=>{
+    const r=measureAdvance(x0+off,cy,h);
+    if(r)vals.push(r);
+  });
+  if(!vals.length)return null;
+  vals.sort((a,b)=>a-b);
+  return vals[vals.length>>1];
 }
 
 // 실제 픽셀을 보고 글자 사이 빈틈에 박스 양끝을 스냅 → 폰트 무관 정확한 경계
