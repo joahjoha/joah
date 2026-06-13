@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>cover</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Noto+Sans+KR:wght@400;500&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -468,6 +468,8 @@ function isDarkBg(hex){
 // HTML 주입 방지를 위해 먼저 escape 후 토큰만 태그로 치환. dark=어두운 배경용 색.
 function renderMarkup(text,dark){
   const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // …(말줄임표)가 letter-spacing 때문에 점 3개처럼 벌어지는 현상 방지
+  const protectEllipsis=s=>s.replace(/…/g,'<span style="letter-spacing:0">…</span>');
   const grayCol = dark?'#b8b2aa':'#6b6560';
   const codeBg  = dark?'#3a3630':'#1c1917';
   const codeFg  = '#f0ece6';
@@ -477,6 +479,7 @@ function renderMarkup(text,dark){
   let t=text.replace(/\n?```([\s\S]*?)```\n?/g,(m,c)=>{codes.push({block:true,c});return '\u0000C'+(codes.length-1)+'\u0000';})
             .replace(/`([^`\n]+?)`/g,(m,c)=>{codes.push({block:false,c});return '\u0000C'+(codes.length-1)+'\u0000';});
   t=esc(t);
+  t=protectEllipsis(t);
   t=t.replace(/\*\*([^*]+?)\*\*/g,'<b>$1</b>'); // **굵게**
   // > 인용구 → 왼쪽 회색 세로줄 블록
   const quoteCol = dark?'#4a4540':'#ccc8c2';
@@ -522,7 +525,8 @@ function openResult(){
 }
 
 function copyResult(){
-  const t=_resultRaw||document.getElementById('result-text').innerText;
+  const t=_resultRaw;
+  if(!t){toast('복사할 내용이 없어요');return;}
   navigator.clipboard.writeText(t).then(()=>toast('복사됐어요')).catch(()=>{
     const ta=document.createElement('textarea');
     ta.value=t;document.body.appendChild(ta);ta.select();
@@ -570,7 +574,7 @@ async function textToImage(){
 
   if(typeof html2canvas==='undefined'){toast('이미지 변환 모듈 로딩 중… 잠시 후 다시 시도해주세요');return;}
 
-  const sysFont = `-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif`;
+  const sysFont = `'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif`;
   const dark = isDarkBg(selectedBg);
   // 미리보기(result-text)와 똑같은 HTML·스타일을 가진 오프스크린 박스를 만들어 캡처.
   // 화면에 보이는 그대로가 이미지로 나옴 (굵게·진회색·코드 박스·줄바꿈 동일)
@@ -578,9 +582,9 @@ async function textToImage(){
   const stage = document.createElement('div');
   stage.style.cssText =
     'position:fixed;left:-99999px;top:0;width:'+stageW+'px;box-sizing:border-box;'+
-    'padding:20px 18px;background:'+selectedBg+';color:'+(dark?'#f0ece6':'#1c1917')+';'+
-    'font-family:'+sysFont+';font-size:14px;line-height:1.75;'+
-    'letter-spacing:-0.3px;white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere';
+    'padding:24px 20px;background:'+selectedBg+';color:'+(dark?'#f0ece6':'#1c1917')+';'+
+    'font-family:'+sysFont+';font-size:15px;line-height:1.4;'+
+    'letter-spacing:-0.02em;white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere';
   stage.innerHTML = renderMarkup(result,dark);
   document.body.appendChild(stage);
 
