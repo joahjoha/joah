@@ -291,6 +291,13 @@ html,body{
             <div class="auto-sub">~콩알~ 처럼 순화해서</div>
           </div>
         </div>
+        <div class="auto-row" onclick="toggleFuzzy()">
+          <div class="auto-check" id="fuzzy-check"></div>
+          <div>
+            <div class="auto-label">오타 보정</div>
+            <div class="auto-sub">받침 잘못 읽혀도 가리기</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -664,7 +671,7 @@ function toggleAuto(){
 
 let cuteMode=false;
 let debugMode=false;
-const APP_VER='v23.5';
+const APP_VER='v23.6';
 function toggleDebug(){
   debugMode=!debugMode;
   if(ocrData)applyCensor();
@@ -672,6 +679,13 @@ function toggleDebug(){
 function toggleCute(){
   cuteMode=!cuteMode;
   document.getElementById('cute-check').classList.toggle('on',cuteMode);
+  if(ocrData) applyCensor();
+}
+
+let fuzzyMode=false;
+function toggleFuzzy(){
+  fuzzyMode=!fuzzyMode;
+  document.getElementById('fuzzy-check').classList.toggle('on',fuzzyMode);
   if(ocrData) applyCensor();
 }
 
@@ -820,6 +834,7 @@ async function doScan(){
   if(!tessReady){toast('OCR 엔진 로딩 중...');return}
   const btn=document.getElementById('scan-btn');
   btn.disabled=true; btn.textContent='스캔 중...';
+  debugMode=false; // 스캔 시작 시 진단 모드 자동으로 꺼짐 — 🔍 눌러야만 켜짐
   const fill=document.getElementById('progress-fill');
   const ptxt=document.getElementById('progress-text');
   document.getElementById('progress').classList.add('show');
@@ -837,19 +852,16 @@ async function doScan(){
     const korWorker=await getTessWorker('kor');
     const result=await korWorker.recognize(processed);
     unscaleOcr(result.data,k);
-    ocrData=result.data;
-    // 입력 단어에 영어가 있을 때만 영어 패스 추가 후 병합 (한글만 칠 땐 속도 그대로)
+    ocrData={kor:result.data, eng:null};
+    // 영어 단어가 있을 때만 eng OCR 추가 실행
     const w1e=document.getElementById('word1').value.trim();
     const w2e=document.getElementById('word2').value.trim();
-    if(/[a-z]/i.test(w1e+w2e)){
+    if(/[a-z]/i.test(w1e+w2e)||autoFilter===false){
       ptxt.textContent='영어 스캔 중...';
       const engWorker=await getTessWorker('eng');
       const engRes=await engWorker.recognize(processed);
       unscaleOcr(engRes.data,k);
-      ocrData={
-        words:[...(result.data.words||[]),...(engRes.data.words||[])],
-        symbols:[...(result.data.symbols||[]),...(engRes.data.symbols||[])]
-      };
+      ocrData.eng=engRes.data;
     }
     fill.style.width='100%'; ptxt.textContent='100%';
     const canvas=document.getElementById('canvas');
@@ -896,17 +908,32 @@ function composeJamoChars(chars){
   return out;
 }
 
+// 받침 제거: '닿'→'다', '당'→'다'. 받침만 틀린 OCR 오류 보정.
+function _noJong(ch){
+  const c=ch.charCodeAt(0)-0xAC00;
+  if(c<0||c>11171)return ch;
+  const j=c%28;
+  return j===0?ch:String.fromCharCode(0xAC00+(c-j));
+}
+
 function applyCensor(){
   if(!origImg||!ocrData)return;
   const w1=document.getElementById('word1').value.trim().normalize('NFC').toLowerCase();
   const w2=document.getElementById('word2').value.trim().normalize('NFC').toLowerCase();
-  const searchWords=[w1,w2].map(s=>s.replace(/[^\p{L}\p{N}]/gu,'')).filter(Boolean).map(s=>({sw:s,auto:false,latin:/^[a-z0-9]{1,4}$/.test(s)}));
+  // latin: 영어/숫자로만 이루어진 단어 (길이 제한 없음) — 앞뒤 경계 체크에 사용
+  const searchWords=[w1,w2].map(s=>s.replace(/[^\p{L}\p{N}]/gu,'')).filter(Boolean).map(s=>({sw:s,auto:false,latin:/^[a-z0-9]+$/i.test(s)}));
   if(autoFilter){
     AUTO_WORDS.forEach(a=>{
       const s=a.toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
-      if(s&&!searchWords.some(e=>e.sw===s)) searchWords.push({sw:s,auto:true,latin:/^[a-z0-9]{1,4}$/.test(s)});
+      if(s&&!searchWords.some(e=>e.sw===s)) searchWords.push({sw:s,auto:true,latin:/^[a-z0-9]+$/i.test(s)});
     });
   }
+  // 영어 단어는 eng OCR 데이터로, 한글 단어는 kor OCR 데이터로 분리해서 처리
+  const korWords=searchWords.filter(e=>!e.latin);
+  const engWords=searchWords.filter(e=>e.latin);
+  // 단어별 counts 인덱스 유지 (searchWords 순서 기준)
+  const korData=ocrData.kor||ocrData; // 하위호환: ocrData가 구버전 flat 형태이면 그대로 사용
+  const engData=ocrData.eng||null;
   const canvas=document.getElementById('canvas');
   const ctx=canvas.getContext('2d');
   ctx.drawImage(origImg,0,0);
@@ -917,6 +944,17 @@ function applyCensor(){
   }
   const counts=searchWords.map(()=>0); // 단어별로 따로 카운트
   const drawnRects=[]; // 이미 가린 영역 (fallback 중복 방지용)
+
+  // 모든 단어 높이의 중앙값 → 일정한 박스 높이 기준 (kor OCR 기준)
+  const allKorWords=korData.words||[];
+  const allEngWords=(engData&&engData.words)||[];
+  const allWordsForHeight=[...allKorWords,...allEngWords];
+  const heights=allWordsForHeight.map(w=>w.bbox.y1-w.bbox.y0).filter(h=>h>0).sort((a,b)=>a-b);
+  const medH=heights.length?heights[Math.floor(heights.length/2)]:20;
+  const padY=Math.round(medH*0.1);
+  const fixedH=medH+padY*2;
+
+  // fixedH 정의 후에 isCovered 선언 (fixedH가 const라 선언 전 참조 불가)
   function isCovered(x0,x1,yc){
     const h2=fixedH/2;
     for(const r of drawnRects){
@@ -924,263 +962,340 @@ function applyCensor(){
       const iy=Math.max(0,Math.min(yc+h2,r.y1)-Math.max(yc-h2,r.y0));
       const newArea=Math.max(1,(x1-x0))*fixedH;
       const oldArea=Math.max(1,(r.x1-r.x0))*Math.max(1,(r.y1-r.y0));
-      // 단어 단위 인식과 심볼(글자) 단위 fallback이 같은 글자를
-      // 살짝 다른 위치/크기로 잡아도 "같은 자리"로 판단되도록
-      // 두 박스 중 더 작은 쪽 기준으로, 더 낮은 비율로 비교
       if(ix*iy>0.25*Math.min(newArea,oldArea))return true;
     }
     return false;
   }
 
-  // 모든 단어 높이의 중앙값 → 일정한 박스 높이 기준
-  const allWords=ocrData.words||[];
-  const heights=allWords.map(w=>w.bbox.y1-w.bbox.y0).filter(h=>h>0).sort((a,b)=>a-b);
-  const medH=heights.length?heights[Math.floor(heights.length/2)]:20;
-  const padY=Math.round(medH*0.1);
-  const fixedH=medH+padY*2;
-
-  // 단어 단위 매칭 — 부분 일치면 해당 글자 구간만 가림
-  allWords.forEach(w=>{
-    // 글자(심볼) 단위 매핑 생성: 정제된 글자 → 심볼 bbox
-    const rawChars=[];
-    if(w.symbols&&w.symbols.length){
-      w.symbols.forEach(s=>{
-        const t=(s.text||'').normalize('NFC').toLowerCase();
-        const cs=[...t].filter(ch=>/[\p{L}\p{N}]/u.test(ch));
-        cs.forEach((ch,ci)=>rawChars.push({ch,sym:s,ci,cn:cs.length}));
-      });
-    }else{
-      const t=(w.text||'').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
-      for(const ch of t) rawChars.push({ch,sym:null,ci:0,cn:1});
+  // ── 영어 단어 가리기: 픽셀 column 스캔으로 글자 경계 직접 측정 ──
+  // 심볼 bbox 전혀 안 씀 — OCR이 특수문자 섞어도 무관
+  function pixelColumnsForWord(bb,cy){
+    if(!offCtx)return null;
+    const cw=offCtx.canvas.width,ch=offCtx.canvas.height;
+    const sx=Math.max(0,Math.floor(bb.x0-medH*0.3));
+    const ex=Math.min(cw-1,Math.ceil(bb.x1+medH*0.3));
+    const sy=Math.max(0,Math.floor(cy-fixedH*0.55));
+    const ey=Math.min(ch-1,Math.ceil(cy+fixedH*0.55));
+    const pw=ex-sx+1, ph=ey-sy+1;
+    if(pw<2||ph<2)return null;
+    let img;
+    try{img=offCtx.getImageData(sx,sy,pw,ph).data;}catch(e){return null;}
+    const lum=p=>0.299*img[p]+0.587*img[p+1]+0.114*img[p+2];
+    // 배경 밝기 추정 (중앙값)
+    const ls=[];
+    for(let i=0;i<img.length;i+=16)ls.push(lum(i-(i%4)));
+    ls.sort((a,b)=>a-b);
+    const bg=ls[ls.length>>1];
+    // 각 열의 잉크 합산
+    const ink=new Float32Array(pw);
+    for(let yy=0;yy<ph;yy++){
+      for(let xx=0;xx<pw;xx++){
+        if(Math.abs(lum((yy*pw+xx)*4)-bg)>40)ink[xx]++;
+      }
     }
-    const chars=composeJamoChars(rawChars);
-    const txt=chars.map(c=>c.ch).join('');
-    if(!txt)return;
-    const bb=w.bbox;
-    searchWords.forEach((en,si)=>{
-      const sw=en.sw;
-      let idx=txt.indexOf(sw);
-      while(idx>=0){
-        // 짧은 영문 검색어(rr 등)는 앞뒤에 다른 알파벳이 붙어 있으면 건너뜀
-        // → "sorry", "tomorrow" 속 rr을 오인 매칭하지 않음
-        if(en.latin&&(/[a-z0-9]/.test(txt[idx-1]||'')||/[a-z0-9]/.test(txt[idx+sw.length]||''))){
-          idx=txt.indexOf(sw,idx+1);continue;
-        }
-        const a=chars[idx], b=chars[idx+sw.length-1];
-        let x0,x1;
-        // 단어가 순수 한글이면: 단어 폭 ÷ 글자 수 = 정확한 글자 간격 → 등분 계산
-        // (한글은 글자 폭이 균일해서 가장 정확. 심볼 좌표의 오차를 우회)
-        const raw=(w.text||'').normalize('NFC').trim();
-        const pureHangul=raw.length>0&&raw.length===txt.length&&/^[\uac00-\ud7a3]+$/.test(raw);
-        if(pureHangul&&/^[\uac00-\ud7a3]+$/.test(sw)){
-          const unit=(bb.x1-bb.x0)/txt.length;
-          x0=bb.x0+unit*idx;
-          x1=bb.x0+unit*(idx+sw.length);
-        }else{
-        if(a.sym&&a.sym.bbox&&b.sym&&b.sym.bbox){
-          // 심볼이 여러 글자를 담고 있으면 그 안에서 비율로 잘라냄 ("루의" 덩어리 → 루 부분만)
-          const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
-          x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
-          x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
-        }
-        if(!(x1>x0)){
-          // 심볼 정보가 없거나 이상하면 글자 수 비율로 추정
-          const ww=bb.x1-bb.x0;
-          x0=bb.x0+Math.round(ww*idx/txt.length);
-          x1=bb.x0+Math.round(ww*(idx+sw.length)/txt.length);
-        }
-        } // end else (비순수 단어 경로)
-        let dbgInfo='';
-        // 한글 단어: 끝점은 OCR을 믿지 않고 픽셀에서 잰 간격으로 '계산'
-        // x1 = x0 + 글자수 × 간격. OCR이 단어를 쪼개거나 ㅏㅣ를 빼먹어도 무관.
-        if(/^[\uac00-\ud7a3]+$/.test(sw)){
-          const cyy=Math.round((bb.y0+bb.y1)/2);
-          const gh=Math.max(8,bb.y1-bb.y0);
-          let estUnit=(x1-x0)/sw.length;
-          if(!(estUnit>2)||estUnit>medH*1.4)estUnit=Math.min((bb.x1-bb.x0)/txt.length,medH);
-          estUnit=Math.max(estUnit,medH*0.55);
-          const A=measureAdvance3(x0,cyy,medH); // 픽셀 자기상관 간격 (3지점 중앙값)
-          const ref=medH*0.97; // 글자높이 기준폭
-          const sc=(sw.length===1); // 1글자 검색 여부
-          let unitF;
-          if(sc){
-            // 1글자: 옆 글자 간격을 잴 수 없으니 글자높이폭으로 고정 (e:22 같은 OCR 폭 무시)
-            unitF=A&&Math.abs(A-ref)<=ref*0.25?A:ref;
-          }else if(A&&Math.abs(A-ref)<=ref*0.3){
-            unitF=A; // 픽셀에서 잰 간격이 합리적 범위면 그대로 신뢰 (OCR bbox보다 정확)
-          }else if(A){
-            const arr=[A,estUnit,ref].sort((p,q)=>p-q);unitF=arr[1];
-          }else{
-            unitF=Math.abs(estUnit-ref)<=medH*0.2?estUnit:ref;
-          }
-          const ideal=sw.length*unitF;
-          x1=x0+ideal;
-          [x0,x1]=refineXEdges(x0,x1,cyy,gh,unitF,ideal,sc);
-          if(!sc){
-            // 시작점이 오른쪽으로 밀린 경우 보정 (다글자 전용)
-            const prv=idx>0?chars[idx-1]:null;
-            if(prv&&prv.sym&&prv.sym.bbox&&prv.sym.bbox.x1<x0){
-              x0=Math.max(prv.sym.bbox.x1+1,x0-unitF*0.25);
-            }
-            // 다음 글자(조사 '의' 등) 시작점을 끝선 상한으로
-            const nxt=chars[idx+sw.length];
-            if(nxt&&nxt.sym&&nxt.sym.bbox&&nxt.sym.bbox.x0>x0+ideal*0.45){
-              const padR=Math.max(2,Math.round(fixedH*0.06))+1;
-              x1=Math.min(x1,nxt.sym.bbox.x0-padR);
-            }
-          }
-          dbgInfo='W A:'+(A||'x')+' u:'+Math.round(unitF)+' e:'+Math.round(estUnit)+' gh:'+gh;
-        }
-        const cy=Math.round((bb.y0+bb.y1)/2);
-        // 같은 자리(글자)가 다른 OCR 단어 인식 결과에서 또 잡힌 경우
-        // — 이미 가린 자리면 또 그리지 않음 (이모지/모자이크 중복 방지)
-        if(isCovered(x0,x1,cy)){
-          counts[si]++;
-          idx=txt.indexOf(sw,idx+1);
-          continue;
-        }
-        const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
-        let by0=cy-Math.round(fixedH/2);
-        // 바로 옆 박스가 거의 맞닿아 있으면 가로로 잇고, 세로 위치도 그 박스에 통일.
-        // (같은 줄인데 OCR이 글자별 cy를 다르게 잡아 박스가 계단처럼 어긋나는 것 방지)
-        for(const r of drawnRects){
-          if(Math.abs((r.y0+r.y1)/2-cy)>fixedH*0.3)continue;
-          const gap=Math.max(x0,r.x0)-Math.min(x1,r.x1);
-          if(x0<=r.x1+medH*0.3&&x1>=r.x0-medH*0.3&&gap<medH*0.4){
-            x0=Math.min(x0,r.x1);x1=Math.max(x1,r.x0);
-            by0=r.y0; // 세로 정렬 통일
-          }
-        }
-        drawCensor(ctx,canvas,x0,by0,x1-x0,fixedH,lbl);
-        if(debugMode&&dbgInfo){
-          ctx.save();
-          ctx.font=Math.max(9,Math.round(medH*0.38))+'px monospace';
-          ctx.fillStyle='#0a7d2c';
-          ctx.fillText(dbgInfo,x0,cy+fixedH*0.95);
-          ctx.restore();
-        }
-        drawnRects.push({x0,x1,y0:by0,y1:by0+fixedH});
-        counts[si]++;
-        idx=txt.indexOf(sw,idx+1);
-      }
-    });
-  });
+    return {ink,sx,ex,ph};
+  }
 
-  // 심볼 fallback — 항상 실행 (OCR이 단어를 쪼갠 경우의 추가 인스턴스도 잡음)
-  // 이미 가린 자리는 건너뛰어 중복 방지
-  if(ocrData.symbols){
-    const syms=ocrData.symbols||[];
-    const rawSyms=[];
-    syms.forEach(s=>{
-      const t=(s.text||'').normalize('NFC').toLowerCase();
-      const cs=[...t].filter(ch=>/[\p{L}\p{N}]/u.test(ch));
-      cs.forEach((ch,ci)=>rawSyms.push({ch,sym:s,ci,cn:cs.length}));
-    });
-    const map=composeJamoChars(rawSyms);
-    const allText=map.map(c=>c.ch).join('');
-    searchWords.forEach((en,si)=>{
-      const sw=en.sw;
-      let idx=allText.indexOf(sw);
-      while(idx>=0){
-        if(en.latin&&(/[a-z0-9]/.test(allText[idx-1]||'')||/[a-z0-9]/.test(allText[idx+sw.length]||''))){
-          idx=allText.indexOf(sw,idx+1);continue;
-        }
-        const a=map[idx];
-        const b=map[Math.min(idx+sw.length-1,map.length-1)];
-        if(a?.sym?.bbox&&b?.sym?.bbox){
-          const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
-          let x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
-          let x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
-          const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
-          const cy2=Math.round((b.sym.bbox.y0+b.sym.bbox.y1)/2);
-          // 한글: 끝점은 픽셀에서 잰 간격으로 계산 (OCR 좌표 오류 무관)
-          let dbgF='';
-          if(/^[\uac00-\ud7a3]+$/.test(sw)){
-            let estUnit=(x1-x0)/sw.length;
-            if(!(estUnit>2)||estUnit>medH*1.4)estUnit=medH;
-            estUnit=Math.max(estUnit,medH*0.55);
-            const A=measureAdvance3(x0,cy,medH);
-            const ref=medH*0.97;
-            const sc=(sw.length===1);
-            let unitF;
-            if(sc){
-              unitF=A&&Math.abs(A-ref)<=ref*0.25?A:ref;
-            }else if(A&&Math.abs(A-ref)<=ref*0.3){
-              unitF=A;
-            }else if(A){
-              const arr=[A,estUnit,ref].sort((p,q)=>p-q);unitF=arr[1];
-            }else{
-              unitF=Math.abs(estUnit-ref)<=medH*0.2?estUnit:ref;
-            }
-            const ideal=sw.length*unitF;
-            x1=x0+ideal;
-            const r2=refineXEdges(x0,x1,cy,fixedH,unitF,ideal,sc);
-            x0=r2[0];x1=r2[1];
-            if(!sc){
-              // 시작점 우측 밀림 보정 (앞 글자 끝 안 넘는 선에서 1/4글자 당김)
-              const prvE=idx>0?map[idx-1]:null;
-              if(prvE&&prvE.sym&&prvE.sym.bbox){
-                const pb=prvE.sym.bbox;
-                if(Math.abs((pb.y0+pb.y1)/2-cy)<fixedH*0.8&&pb.x1<x0){
-                  x0=Math.max(pb.x1+1,x0-unitF*0.25);
-                }
-              }
-              // 다음 글자(조사 등)가 같은 줄이면 그 시작점 − 패딩을 끝선 상한으로
-              const nxtE=map[idx+sw.length];
-              if(nxtE&&nxtE.sym&&nxtE.sym.bbox){
-                const nb=nxtE.sym.bbox;
-                const ncy=(nb.y0+nb.y1)/2;
-                if(Math.abs(ncy-cy)<fixedH*0.8&&nb.x0>x0+ideal*0.45){
-                  const padR=Math.max(2,Math.round(fixedH*0.06))+1;
-                  x1=Math.min(x1,nb.x0-padR);
-                }
-              }
-            }
-            dbgF='F A:'+(A||'x')+' u:'+Math.round(unitF)+' e:'+Math.round(estUnit);
-          }
-          // 줄이 바뀌는 매칭은 무시, 이미 가린 자리도 무시
-          if(x1>x0&&Math.abs(cy-cy2)<fixedH*0.8&&!isCovered(x0,x1,cy)){
-            const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
-            let by0=cy-Math.round(fixedH/2);
-            // 옆 박스와 가로로 잇고 세로 위치도 통일 (계단 어긋남 방지)
-            for(const r of drawnRects){
-              if(Math.abs((r.y0+r.y1)/2-cy)>fixedH*0.3)continue;
-              const gap=Math.max(x0,r.x0)-Math.min(x1,r.x1);
-              if(x0<=r.x1+medH*0.3&&x1>=r.x0-medH*0.3&&gap<medH*0.4){
-                x0=Math.min(x0,r.x1);x1=Math.max(x1,r.x0);
-                by0=r.y0;
-              }
-            }
-            drawCensor(ctx,canvas,x0,by0,x1-x0,fixedH,lbl);
-            if(debugMode&&dbgF){
-              ctx.save();
-              ctx.font=Math.max(9,Math.round(medH*0.38))+'px monospace';
-              ctx.fillStyle='#0a7d2c';
-              ctx.fillText(dbgF,x0,cy+fixedH*0.95);
-              ctx.restore();
-            }
-            drawnRects.push({x0,x1,y0:by0,y1:by0+fixedH});
-            counts[si]++;
-          }else if(debugMode){
-            // 스킵된 매칭 표시 (줄바뀜 cy차이 / 중복)
-            ctx.save();
-            ctx.font=Math.max(9,Math.round(medH*0.38))+'px monospace';
-            ctx.fillStyle='#d97706';
-            const why=Math.abs(cy-cy2)>=fixedH*0.8?'skip:line(cy'+Math.abs(cy-cy2)+')':'skip:dup';
-            ctx.fillText(why,x0,cy+fixedH*0.95);
-            ctx.restore();
-          }
-        }
-        idx=allText.indexOf(sw,idx+1);
+  // 잉크 배열에서 글자 덩어리(glyph) 경계를 분리
+  // 반환: [{x0,x1}] — 이미지 좌표 기준
+  function splitGlyphs(ink,sx,ph){
+    const thr=Math.max(1,ph*0.04); // 열 잉크가 이 값 이하면 gap
+    const glyphs=[];
+    let inGlyph=false,gStart=0;
+    for(let i=0;i<ink.length;i++){
+      if(!inGlyph&&ink[i]>thr){inGlyph=true;gStart=i;}
+      else if(inGlyph&&ink[i]<=thr){
+        glyphs.push({x0:gStart+sx,x1:i-1+sx});
+        inGlyph=false;
       }
+    }
+    if(inGlyph)glyphs.push({x0:gStart+sx,x1:ink.length-1+sx});
+    return glyphs;
+  }
+
+  function coverEngWords(){
+    if(!engWords.length)return;
+    const src=engData?(engData.words||[]):(korData.words||[]);
+    src.forEach(w=>{
+      const wtext=(w.text||'').toLowerCase().replace(/[^a-z0-9]/gi,'');
+      if(!wtext)return;
+      const bb=w.bbox;
+      const cy=Math.round((bb.y0+bb.y1)/2);
+
+      // 픽셀 column 분석으로 글자 덩어리 경계 획득
+      const pcol=pixelColumnsForWord(bb,cy);
+      const glyphs=pcol?splitGlyphs(pcol.ink,pcol.sx,pcol.ph):[];
+
+      // glyph 수가 wtext 길이와 비슷하면 글자별 경계 매핑 가능
+      // 영어는 글자가 붙어있는 경우도 있어서 완전 1:1이 안 될 수 있음
+      // → 비율 fallback과 혼합 사용
+      const unit=(bb.x1-bb.x0)/wtext.length;
+
+      engWords.forEach(en=>{
+        const si=searchWords.indexOf(en);
+        const sw=en.sw;
+        let idx=wtext.indexOf(sw);
+        while(idx>=0){
+          // 단어 경계 체크: 앞뒤에 알파벳이 붙어있으면 건너뜀
+          const before=wtext[idx-1]||'';
+          const after=wtext[idx+sw.length]||'';
+          if(/[a-z0-9]/i.test(before)||/[a-z0-9]/i.test(after)){
+            idx=wtext.indexOf(sw,idx+1);continue;
+          }
+
+          // ① 비율로 대략적인 x 범위 계산 (항상 유효한 fallback)
+          let x0=bb.x0+unit*idx;
+          let x1=bb.x0+unit*(idx+sw.length);
+
+          // ② glyph 분리가 wtext와 충분히 대응되면 글자 경계 직접 사용
+          if(glyphs.length>=wtext.length&&glyphs.length<=wtext.length*1.5){
+            // wtext의 각 글자가 glyph 하나에 대응된다고 가정
+            const ga=glyphs[Math.min(idx,glyphs.length-1)];
+            const gb=glyphs[Math.min(idx+sw.length-1,glyphs.length-1)];
+            if(ga&&gb){x0=ga.x0;x1=gb.x1;}
+          } else {
+            // ③ glyph 분리가 안 됐어도, 픽셀 스캔으로 실제 잉크 경계를 찾아 x0/x1 보정
+            if(pcol){
+              const {ink,sx}=pcol;
+              const thr=Math.max(1,pcol.ph*0.04);
+              // x0 보정: 비율 위치 근처에서 실제 잉크 시작점 탐색 (왼→오)
+              const searchL=Math.max(0,Math.round(x0-unit*0.6)-sx);
+              const searchR=Math.min(ink.length-1,Math.round(x0+unit*0.6)-sx);
+              for(let i=searchL;i<=searchR;i++){
+                if(ink[i]>thr){x0=i+sx;break;}
+              }
+              // x1 보정: 비율 위치 근처에서 실제 잉크 끝점 탐색 (오→왼)
+              const searchL2=Math.max(0,Math.round(x1-unit*0.6)-sx);
+              const searchR2=Math.min(ink.length-1,Math.round(x1+unit*0.6)-sx);
+              for(let i=searchR2;i>=searchL2;i--){
+                if(ink[i]>thr){x1=i+sx;break;}
+              }
+            }
+          }
+
+          if(!(x1>x0)){idx=wtext.indexOf(sw,idx+1);continue;}
+          if(isCovered(x0,x1,cy)){counts[si]++;idx=wtext.indexOf(sw,idx+1);continue;}
+          const by0=cy-Math.round(fixedH/2);
+          drawCensor(ctx,canvas,x0,by0,x1-x0,fixedH,null);
+          drawnRects.push({x0,x1,y0:by0,y1:by0+fixedH});
+          counts[si]++;
+          idx=wtext.indexOf(sw,idx+1);
+        }
+      });
     });
   }
+  coverEngWords();
+
+  // ── 한글 단어 가리기: 픽셀 자기상관 기반 정밀 매칭 ──
+  function coverKorWords(){
+    if(!korWords.length)return;
+    (korData.words||[]).forEach(w=>{
+      const rawChars=[];
+      if(w.symbols&&w.symbols.length){
+        w.symbols.forEach(s=>{
+          const t=(s.text||'').normalize('NFC').toLowerCase();
+          const cs=[...t].filter(ch=>/[\p{L}\p{N}]/u.test(ch));
+          cs.forEach((ch,ci)=>rawChars.push({ch,sym:s,ci,cn:cs.length}));
+        });
+      }else{
+        const t=(w.text||'').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+        for(const ch of t) rawChars.push({ch,sym:null,ci:0,cn:1});
+      }
+      const chars=composeJamoChars(rawChars);
+      const txt=chars.map(c=>c.ch).join('');
+      if(!txt)return;
+      const bb=w.bbox;
+      korWords.forEach(en=>{
+        const si=searchWords.indexOf(en);
+        const sw=en.sw;
+        let idx=txt.indexOf(sw);
+        while(idx>=0){
+          const a=chars[idx], b=chars[idx+sw.length-1];
+          let x0,x1;
+          const raw=(w.text||'').normalize('NFC').trim();
+          const pureHangul=raw.length>0&&raw.length===txt.length&&/^[가-힣]+$/.test(raw);
+          if(pureHangul&&/^[가-힣]+$/.test(sw)){
+            const unit=(bb.x1-bb.x0)/txt.length;
+            x0=bb.x0+unit*idx; x1=bb.x0+unit*(idx+sw.length);
+          }else{
+            if(a.sym&&a.sym.bbox&&b.sym&&b.sym.bbox){
+              const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
+              x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
+              x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
+            }
+            if(!(x1>x0)){
+              const ww=bb.x1-bb.x0;
+              x0=bb.x0+Math.round(ww*idx/txt.length);
+              x1=bb.x0+Math.round(ww*(idx+sw.length)/txt.length);
+            }
+          }
+          // 한글 픽셀 정밀 보정
+          if(/^[가-힣]+$/.test(sw)){
+            const cyy=Math.round((bb.y0+bb.y1)/2);
+            const gh=Math.max(8,bb.y1-bb.y0);
+            let estUnit=(x1-x0)/sw.length;
+            if(!(estUnit>2)||estUnit>medH*1.4)estUnit=Math.min((bb.x1-bb.x0)/txt.length,medH);
+            estUnit=Math.max(estUnit,medH*0.55);
+            const A=measureAdvance3(x0,cyy,medH);
+            const ref=medH*0.97; const sc=(sw.length===1);
+            let unitF;
+            if(sc){unitF=A&&Math.abs(A-ref)<=ref*0.25?A:ref;}
+            else if(A&&Math.abs(A-ref)<=ref*0.3){unitF=A;}
+            else if(A){const arr=[A,estUnit,ref].sort((p,q)=>p-q);unitF=arr[1];}
+            else{unitF=Math.abs(estUnit-ref)<=medH*0.2?estUnit:ref;}
+            const ideal=sw.length*unitF; x1=x0+ideal;
+            [x0,x1]=refineXEdges(x0,x1,cyy,gh,unitF,ideal,sc);
+            if(!sc){
+              const prv=idx>0?chars[idx-1]:null;
+              if(prv&&prv.sym&&prv.sym.bbox&&prv.sym.bbox.x1<x0)
+                x0=Math.max(prv.sym.bbox.x1+1,x0-unitF*0.25);
+              const nxt=chars[idx+sw.length];
+              if(nxt&&nxt.sym&&nxt.sym.bbox&&nxt.sym.bbox.x0>x0+ideal*0.45){
+                const padR=Math.max(2,Math.round(fixedH*0.06))+1;
+                x1=Math.min(x1,nxt.sym.bbox.x0-padR);
+              }
+            }
+          }
+          const cy=Math.round((bb.y0+bb.y1)/2);
+          if(isCovered(x0,x1,cy)){counts[si]++;idx=txt.indexOf(sw,idx+1);continue;}
+          const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
+          let by0=cy-Math.round(fixedH/2);
+          for(const r of drawnRects){
+            if(Math.abs((r.y0+r.y1)/2-cy)>fixedH*0.3)continue;
+            const gap=Math.max(x0,r.x0)-Math.min(x1,r.x1);
+            if(x0<=r.x1+medH*0.3&&x1>=r.x0-medH*0.3&&gap<medH*0.4){
+              x0=Math.min(x0,r.x1);x1=Math.max(x1,r.x0);by0=r.y0;
+            }
+          }
+          drawCensor(ctx,canvas,x0,by0,x1-x0,fixedH,lbl);
+          drawnRects.push({x0,x1,y0:by0,y1:by0+fixedH});
+          counts[si]++; idx=txt.indexOf(sw,idx+1);
+        }
+      });
+    });
+    // 심볼 fallback (한글만)
+    const korSyms=korData.symbols||[];
+    if(korSyms.length&&korWords.length){
+      const rawSyms=[];
+      korSyms.forEach(s=>{
+        const t=(s.text||'').normalize('NFC').toLowerCase();
+        const cs=[...t].filter(ch=>/[\p{L}\p{N}]/u.test(ch));
+        cs.forEach((ch,ci)=>rawSyms.push({ch,sym:s,ci,cn:cs.length}));
+      });
+      const map=composeJamoChars(rawSyms);
+      const allText=map.map(c=>c.ch).join('');
+      korWords.forEach(en=>{
+        const si=searchWords.indexOf(en);
+        const sw=en.sw;
+        let idx=allText.indexOf(sw);
+        while(idx>=0){
+          const a=map[idx];
+          const b=map[Math.min(idx+sw.length-1,map.length-1)];
+          if(a?.sym?.bbox&&b?.sym?.bbox){
+            const aw=a.sym.bbox.x1-a.sym.bbox.x0, bw2=b.sym.bbox.x1-b.sym.bbox.x0;
+            let x0=a.sym.bbox.x0+aw*(a.ci/a.cn);
+            let x1=b.sym.bbox.x0+bw2*((b.ci+1)/b.cn);
+            const cy=Math.round((a.sym.bbox.y0+a.sym.bbox.y1)/2);
+            const cy2=Math.round((b.sym.bbox.y0+b.sym.bbox.y1)/2);
+            if(/^[가-힣]+$/.test(sw)){
+              let estUnit=(x1-x0)/sw.length;
+              if(!(estUnit>2)||estUnit>medH*1.4)estUnit=medH;
+              estUnit=Math.max(estUnit,medH*0.55);
+              const A=measureAdvance3(x0,cy,medH);
+              const ref=medH*0.97; const sc=(sw.length===1);
+              let unitF;
+              if(sc){unitF=A&&Math.abs(A-ref)<=ref*0.25?A:ref;}
+              else if(A&&Math.abs(A-ref)<=ref*0.3){unitF=A;}
+              else if(A){const arr=[A,estUnit,ref].sort((p,q)=>p-q);unitF=arr[1];}
+              else{unitF=Math.abs(estUnit-ref)<=medH*0.2?estUnit:ref;}
+              const ideal=sw.length*unitF; x1=x0+ideal;
+              const r2=refineXEdges(x0,x1,cy,fixedH,unitF,ideal,sc);
+              x0=r2[0];x1=r2[1];
+            }
+            if(x1>x0&&Math.abs(cy-cy2)<fixedH*0.8&&!isCovered(x0,x1,cy)){
+              const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
+              let by0=cy-Math.round(fixedH/2);
+              drawCensor(ctx,canvas,x0,by0,x1-x0,fixedH,lbl);
+              drawnRects.push({x0,x1,y0:by0,y1:by0+fixedH});
+              counts[si]++;
+            }
+          }
+          idx=allText.indexOf(sw,idx+1);
+        }
+      });
+    }
+  }
+  coverKorWords();
+
+  // 받침 무시 보정 — '오타 보정' 체크박스가 켜진 경우만, 정확히 못 찾은 입력 단어를
+  // 받침을 빼고 한 번 더 찾음. 같은 줄의 OCR 박스들도 이어붙여서 박스 경계 넘는 단어도 잡음.
+  // (예: '닿는'을 OCR이 '당' / '는' 두 박스로 쪼개고 받침까지 틀려도 잡힘)
+  (function coverKorByJong(){
+    if(!fuzzyMode)return;
+    const targets=korWords.filter(en=>!en.auto&&/^[가-힣]+$/.test(en.sw)&&en.sw.length>=2&&counts[searchWords.indexOf(en)]===0);
+    if(!targets.length)return;
+    // OCR 단어들을 자모 합성 + 줄별로 묶기
+    const items=(korData.words||[]).map(w=>{
+      const rawChars=[];
+      if(w.symbols&&w.symbols.length){
+        w.symbols.forEach(s=>{
+          const t=(s.text||'').normalize('NFC').toLowerCase();
+          const cs=[...t].filter(ch=>/[\p{L}\p{N}]/u.test(ch));
+          cs.forEach((ch,ci)=>rawChars.push({ch,sym:s,ci,cn:cs.length}));
+        });
+      }else{
+        const t=(w.text||'').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+        for(const ch of t) rawChars.push({ch,sym:null,ci:0,cn:1});
+      }
+      const chars=composeJamoChars(rawChars);
+      return {bb:w.bbox,chars,cy:(w.bbox.y0+w.bbox.y1)/2};
+    }).filter(o=>o.chars.length);
+    if(!items.length)return;
+    const lines=[];
+    items.slice().sort((a,b)=>a.cy-b.cy).forEach(o=>{
+      let ln=null;
+      for(const L of lines){if(Math.abs(L.cy-o.cy)<fixedH*0.55){ln=L;break;}}
+      if(!ln){ln={cy:o.cy,items:[]};lines.push(ln);}
+      ln.items.push(o);
+      ln.cy=(ln.cy*(ln.items.length-1)+o.cy)/ln.items.length;
+    });
+    lines.forEach(L=>{
+      L.items.sort((a,b)=>a.bb.x0-b.bb.x0);
+      const stream=[];
+      L.items.forEach(o=>o.chars.forEach((c,iInO)=>stream.push({ch:c.ch,sym:c.sym,ci:c.ci,cn:c.cn,o,iInO,nInO:o.chars.length})));
+      const lineSkel=stream.map(s=>_noJong(s.ch)).join('');
+      targets.forEach(en=>{
+        const si=searchWords.indexOf(en);
+        if(counts[si]>0)return;
+        const skel=[...en.sw].map(_noJong).join('');
+        let idx=lineSkel.indexOf(skel);
+        while(idx>=0){
+          const aS=stream[idx],bS=stream[idx+skel.length-1];
+          let x0,x1;
+          // 시작 좌표
+          if(aS.sym&&aS.sym.bbox){const aw=aS.sym.bbox.x1-aS.sym.bbox.x0;x0=aS.sym.bbox.x0+aw*(aS.ci/aS.cn);}
+          else{const ww=aS.o.bb.x1-aS.o.bb.x0;x0=aS.o.bb.x0+ww*(aS.iInO/aS.nInO);}
+          // 끝 좌표
+          if(bS.sym&&bS.sym.bbox){const bw=bS.sym.bbox.x1-bS.sym.bbox.x0;x1=bS.sym.bbox.x0+bw*((bS.ci+1)/bS.cn);}
+          else{const ww=bS.o.bb.x1-bS.o.bb.x0;x1=bS.o.bb.x0+ww*((bS.iInO+1)/bS.nInO);}
+          const cy=Math.round((aS.o.bb.y0+aS.o.bb.y1)/2);
+          if(x1>x0&&!isCovered(x0,x1,cy)){
+            const by0=cy-Math.round(fixedH/2);
+            drawCensor(ctx,canvas,x0,by0,x1-x0,fixedH,null);
+            drawnRects.push({x0,x1,y0:by0,y1:by0+fixedH});
+            counts[si]++;
+          }
+          idx=lineSkel.indexOf(skel,idx+1);
+        }
+      });
+    });
+  })();
 
   // 진단 모드: OCR이 인식한 단어 영역과 읽은 텍스트를 표시
   if(debugMode){
     ctx.save();
     ctx.lineWidth=Math.max(1,Math.round(medH*0.06));
-    allWords.forEach(w=>{
+    [...allKorWords,...allEngWords].forEach(w=>{
       const b=w.bbox;
       ctx.strokeStyle='rgba(30,100,255,0.85)';
       ctx.strokeRect(b.x0,b.y0,b.x1-b.x0,b.y1-b.y0);
@@ -1209,10 +1324,11 @@ function applyCensor(){
   document.getElementById('dl-btn').style.display=count?'':'none';
 }
 
-// 스캔 후 단어 입력만 바꿔도 바로 재적용 (재스캔 불필요)
+// 스캔 후 단어 입력만 바꿔도 바로 재적용 (재스캔은 안 함 — 사용자가 '스캔' 버튼 다시 눌러야 함)
 ['word1','word2'].forEach(id=>{
   document.getElementById(id).addEventListener('input',()=>{
-    if(ocrData) applyCensor();
+    if(!ocrData)return;
+    applyCensor();
   });
 });
 
@@ -1445,28 +1561,27 @@ function refineXEdges(x0,x1,cy,h,unit,ideal,singleChar){
   }
   if(runS!==null)gaps.push({s:runS+sx,e:w-1+sx,c:(runS+w-1)/2+sx});
   if(!gaps.length)return[x0,x0+ideal];
-  // 시작 경계: 글자 잉크가 실제 시작하는 지점으로 정렬 (왼쪽 빈틈의 오른쪽 끝)
-  // → ㄱ만 덮고 ㅏ가 튀어나오던 1글자 정렬 오류 해결의 핵심
+  // 시작 경계: 왼쪽 gap의 오른쪽 끝으로 정렬. 단, x0보다 오른쪽으로는 이동 안 함
+  // (이동했다가 ㄸ ㅃ 같은 굵은 자음이 박스 밖으로 빠져나오는 것 방지)
   let nx0=x0,d0=unit*0.4;
   gaps.forEach(g=>{
-    const d=Math.abs(g.e-x0);
+    if(g.e>x0)return; // 오른쪽 gap 무시 — 박스를 줄이지 않음
+    const d=x0-g.e;
     if(d<d0){d0=d;nx0=g.e;}
   });
   // 1글자 검색: 끝 경계는 글자 내부 틈(자음↔모음 사이)에 절대 스냅하지 않음.
   // 시작점 + 글자높이폭으로 고정해 ㄱ+ㅏ 한 글자를 통째로 덮음
   if(singleChar){
-    return [nx0, nx0+ideal];
+    return [nx0, nx0+ideal*1.05]; // 모음 획(ㅏ ㅓ 등)이 살짝 삐져나오는 것 방지
   }
-  // 끝 경계: 시작 + 글자수×간격 = 다음 글자 잉크 시작 지점.
-  // 그 직전 틈의 중앙으로 살짝 안쪽 스냅 (다음 글자 안 건드림)
-  // 허용오차를 좁게(0.16) 잡고 좁은 틈은 제외 — 마지막 글자 '안쪽' 틈
-  // (자음블록과 ㅣ·ㅏ 세로획 사이)에 끝선이 달라붙어 획이 삐져나오는 걸 방지
+  // 끝 경계: target보다 오른쪽 gap으로만 스냅 (마지막 글자가 잘리는 거 방지)
   const target=nx0+ideal;
   const minGapW=Math.max(2,Math.round(unit*0.06));
   let nx1=target+unit*0.03,dBest=unit*0.16;
   gaps.forEach(g=>{
-    if(g.e-g.s+1<minGapW)return; // 글자 내부의 좁은 틈은 경계 후보에서 제외
-    const d=Math.abs(g.e-target);
+    if(g.e-g.s+1<minGapW)return;
+    if(g.c<target)return; // 왼쪽 gap 무시 — 박스를 줄이지 않음
+    const d=g.c-target;
     if(d<dBest){dBest=d;nx1=Math.max(g.c,g.e-2);}
   });
   if(nx1-nx0>unit*0.6)return[nx0,nx1];
@@ -1578,6 +1693,8 @@ function doReset(){
   cuteMode=false;
   document.getElementById('cute-check').classList.remove('on');
   document.getElementById('cute-row').style.display='none';
+  fuzzyMode=false;
+  document.getElementById('fuzzy-check').classList.remove('on');
   document.getElementById('found').classList.remove('show');
   document.getElementById('progress').classList.remove('show');
   document.getElementById('dl-btn').style.display='none';
