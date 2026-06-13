@@ -349,7 +349,7 @@ html,body{
 </div>
 <div class="crop-modal" id="result-modal">
   <div class="crop-box">
-    <div class="result-text" id="result-text" style="flex:1;min-height:0;width:100%;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:15px;line-height:1.7;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fafaf9;color:var(--text);white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere"></div>
+    <div class="result-text" id="result-text" style="flex:1;min-height:0;width:100%;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:16px;line-height:1.75;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fafaf9;color:var(--text);white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere"></div>
     <div class="bg-picker">
       <span class="bg-label">배경</span>
       <div class="bg-opts" id="bg-opts"></div>
@@ -478,6 +478,13 @@ function renderMarkup(text,dark){
             .replace(/`([^`\n]+?)`/g,(m,c)=>{codes.push({block:false,c});return '\u0000C'+(codes.length-1)+'\u0000';});
   t=esc(t);
   t=t.replace(/\*\*([^*]+?)\*\*/g,'<b>$1</b>'); // **굵게**
+  // > 인용구 → 왼쪽 회색 세로줄 블록
+  const quoteCol = dark?'#4a4540':'#ccc8c2';
+  const quoteFg  = dark?'#c8c2bc':'#6b6560';
+  t=t.replace(/(^|\n)&gt;\s?([^\n]*)/g,(m,pre,body)=>{
+    return (pre==='\n'?'\n':'')
+      +'<span style="display:block;border-left:3px solid '+quoteCol+';padding:2px 0 2px 10px;margin:1px 0;color:'+quoteFg+'">'+body+'</span>';
+  });
   // *한 개* → 진회색 (기울임 없음). 굵게(**)를 먼저 처리했으므로 남은 단독 * 만 매칭
   t=t.replace(/\*([^*\n]+?)\*/g,'<span style="color:'+grayCol+'">$1</span>');
   // 코드 자리표시자 복원
