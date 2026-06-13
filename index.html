@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>cover</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Noto+Sans+KR:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -45,7 +46,7 @@ html,body{
 .add-rule:hover{border-color:var(--muted);color:var(--text)}
 .del-rule{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 2px;flex-shrink:0;line-height:1}
 .del-rule:hover{color:var(--text)}
-.textarea-field{width:100%;min-height:180px;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;line-height:1.6;resize:vertical;outline:none;background:var(--surface);color:var(--text);transition:border-color .15s}
+.textarea-field{width:100%;min-height:180px;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;line-height:1.65;resize:vertical;outline:none;background:var(--surface);color:var(--text);transition:border-color .15s}
 .textarea-field:focus{border-color:var(--text)}
 .result-area{display:none;position:relative}
 .result-area.show{display:block}
@@ -217,7 +218,7 @@ html,body{
 
 .crop-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center}
 .crop-modal.show{display:flex}
-.crop-box{background:var(--surface);border-radius:14px;padding:20px;width:min(96vw,480px);max-height:90svh;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+.crop-box{background:var(--surface);border-radius:14px;padding:14px 14px 16px;width:min(98vw,480px);max-height:93svh;display:flex;flex-direction:column;gap:10px;overflow:hidden}
 .crop-title{font-size:13px;font-weight:600;color:var(--text);flex-shrink:0}
 .crop-wrap{position:relative;border:1.5px solid var(--border);border-radius:8px;overflow-y:scroll;overflow-x:hidden;touch-action:pan-y;user-select:none;flex:1;min-height:0;-webkit-overflow-scrolling:touch}
 .crop-wrap img{display:block;max-width:100%;height:auto;max-height:calc(90svh - 130px);object-fit:contain;pointer-events:none}
@@ -230,7 +231,7 @@ html,body{
 .crop-btns{display:flex;gap:8px;justify-content:flex-end;flex-shrink:0}
 .bg-picker{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .bg-label{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap}
-.bg-opts{display:flex;gap:6px}
+.bg-opts{display:flex;gap:6px;flex-wrap:wrap}
 .bg-opt{width:28px;height:28px;border-radius:8px;border:1.5px solid var(--border);cursor:pointer;transition:.12s;flex-shrink:0}
 .bg-opt:hover{border-color:#a8a29e}
 .bg-opt.active{border-color:var(--text);box-shadow:0 0 0 2px var(--bg),0 0 0 3.5px var(--text)}
@@ -348,10 +349,7 @@ html,body{
 </div>
 <div class="crop-modal" id="result-modal">
   <div class="crop-box">
-    <div class="crop-title">결과</div>
-    <div style="position:relative;flex:1;min-height:0">
-      <textarea class="result-text" id="result-text" readonly style="width:100%;height:100%;min-height:260px;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;line-height:1.6;resize:none;outline:none;background:#fafaf9;color:var(--text)"></textarea>
-    </div>
+    <div class="result-text" id="result-text" style="flex:1;min-height:0;width:100%;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:15px;line-height:1.7;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fafaf9;color:var(--text);white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere"></div>
     <div class="bg-picker">
       <span class="bg-label">배경</span>
       <div class="bg-opts" id="bg-opts"></div>
@@ -455,18 +453,73 @@ function doReplace(){
   return result;
 }
 
+let _resultRaw=''; // 복사용 원본 텍스트 (마크다운 기호 포함)
+
+// 배경이 어두운지 판정 (텍스트/코드 색 자동 반전용)
+function isDarkBg(hex){
+  const m=/^#?([0-9a-f]{6})$/i.exec(hex||'');
+  if(!m)return false;
+  const n=parseInt(m[1],16);
+  const r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  return (0.299*r+0.587*g+0.114*b)<110;
+}
+
+// **굵게**는 굵게, *한개*는 진회색, `코드`/```블록```은 고정폭으로 그대로.
+// HTML 주입 방지를 위해 먼저 escape 후 토큰만 태그로 치환. dark=어두운 배경용 색.
+function renderMarkup(text,dark){
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const grayCol = dark?'#b8b2aa':'#6b6560';
+  const codeBg  = dark?'#3a3630':'#1c1917';
+  const codeFg  = '#f0ece6';
+  const codeHdr = dark?'#2e2a26':'#2a2520';
+  // 코드 토큰을 먼저 빼내 자리표시자로 보호 (코드 안의 ** 는 굵게 처리 안 함)
+  const codes=[];
+  let t=text.replace(/\n?```([\s\S]*?)```\n?/g,(m,c)=>{codes.push({block:true,c});return '\u0000C'+(codes.length-1)+'\u0000';})
+            .replace(/`([^`\n]+?)`/g,(m,c)=>{codes.push({block:false,c});return '\u0000C'+(codes.length-1)+'\u0000';});
+  t=esc(t);
+  t=t.replace(/\*\*([^*]+?)\*\*/g,'<b>$1</b>'); // **굵게**
+  // *한 개* → 진회색 (기울임 없음). 굵게(**)를 먼저 처리했으므로 남은 단독 * 만 매칭
+  t=t.replace(/\*([^*\n]+?)\*/g,'<span style="color:'+grayCol+'">$1</span>');
+  // 코드 자리표시자 복원
+  t=t.replace(/\u0000C(\d+)\u0000/g,(m,i)=>{
+    const it=codes[+i];
+    const inner=esc(it.block?it.c.trim():it.c);
+    if(it.block){
+      return '<div style="position:relative;background:'+codeBg+';border-radius:10px;margin:6px 0;overflow:hidden">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px 6px;border-bottom:1px solid '+codeHdr+'">'
+        +'<span style="font-size:10px;font-weight:600;letter-spacing:1px;color:#7a736d;text-transform:uppercase;font-family:inherit">INFO</span>'
+        +'<button onclick="(function(){var txt=this.closest(\'div\').querySelector(\'code\').innerText;navigator.clipboard.writeText(txt).catch(()=>{});var el=this;el.textContent=\'✓\';setTimeout(()=>el.textContent=\'⧉\',1200);}).call(this)" style="background:none;border:none;cursor:pointer;color:#7a736d;font-size:14px;padding:0 2px;line-height:1" title="복사">⧉</button>'
+        +'</div>'
+        +'<code style="display:block;color:#f0ece6;padding:10px 14px;font-family:inherit;font-size:14px;line-height:1.75;white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere">'+inner+'</code>'
+        +'</div>';
+    }
+    return '<code style="background:'+codeBg+';color:#f0ece6;border-radius:4px;padding:1px 5px;font-family:inherit;font-size:13px">'+inner+'</code>';
+  });
+  return t;
+}
+
+function _renderPreview(){
+  const rt=document.getElementById('result-text');
+  const dark=isDarkBg(selectedBg);
+  rt.style.background=selectedBg;
+  rt.style.color=dark?'#f0ece6':'#1c1917';
+  rt.innerHTML=renderMarkup(_resultRaw,dark);
+}
+
 function openResult(){
   const result=doReplace();
   if(!result){toast('텍스트를 먼저 입력해주세요');return;}
-  document.getElementById('result-text').value=result;
+  _resultRaw=result;
+  _renderPreview();
   document.getElementById('result-modal').classList.add('show');
 }
 
 function copyResult(){
-  const t=document.getElementById('result-text').value;
+  const t=_resultRaw||document.getElementById('result-text').innerText;
   navigator.clipboard.writeText(t).then(()=>toast('복사됐어요')).catch(()=>{
-    document.getElementById('result-text').select();
-    document.execCommand('copy');
+    const ta=document.createElement('textarea');
+    ta.value=t;document.body.appendChild(ta);ta.select();
+    document.execCommand('copy');ta.remove();
     toast('복사됐어요');
   });
 }
@@ -477,23 +530,28 @@ renderRules();
 // ===== BG COLOR =====
 const BG_COLORS=[
   {name:'흰색',color:'#ffffff'},
+  {name:'검정',color:'#1c1917'},
   {name:'베이지',color:'#faf6f0'},
   {name:'크림',color:'#fff9e6'},
-  {name:'연핑크',color:'#fff0f0'},
-  {name:'연블루',color:'#f0f4ff'},
-  {name:'연민트',color:'#f0faf6'},
+  {name:'연핑크',color:'#fff0f3'},
+  {name:'라벤더',color:'#f3f0ff'},
+  {name:'민트',color:'#edfaf5'},
+  {name:'피치',color:'#fff3ee'},
+  {name:'스카이',color:'#eef5ff'},
+  {name:'세이지',color:'#e8f5e8'},
 ];
-let selectedBg=BG_COLORS[1].color;
+let selectedBg=BG_COLORS[0].color;
 const bgOpts=document.getElementById('bg-opts');
 BG_COLORS.forEach((b,i)=>{
   const d=document.createElement('div');
-  d.className='bg-opt'+(i===1?' active':'');
+  d.className='bg-opt'+(i===0?' active':'');
   d.style.background=b.color;
   d.title=b.name;
   d.onclick=()=>{
     selectedBg=b.color;
     bgOpts.querySelectorAll('.bg-opt').forEach(x=>x.classList.remove('active'));
     d.classList.add('active');
+    if(_resultRaw)_renderPreview(); // 미리보기 배경 즉시 반영
   };
   bgOpts.appendChild(d);
 });
@@ -501,87 +559,59 @@ BG_COLORS.forEach((b,i)=>{
 async function textToImage(){
   const src = document.getElementById('src-text').value;
   if(!src){toast('텍스트를 먼저 입력해주세요');return;}
-  const result = doReplace() || src;
+  const result = (typeof _resultRaw==='string'&&_resultRaw)?_resultRaw:(doReplace() || src);
 
-  const fontSize = 18;
-  const lineHeight = fontSize * 1.5;
-  const paddingX = 24;
-  const paddingY = 28;
-  const canvasW = 680;
-  const maxWidth = canvasW - paddingX * 2;
-  const sysFont = `-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif`;
+  if(typeof html2canvas==='undefined'){toast('이미지 변환 모듈 로딩 중… 잠시 후 다시 시도해주세요');return;}
 
-  const tmp = document.createElement('canvas');
-  const tc = tmp.getContext('2d');
-  tc.font = `${fontSize}px ${sysFont}`;
+  const sysFont = `-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif`;
+  const dark = isDarkBg(selectedBg);
+  // 미리보기(result-text)와 똑같은 HTML·스타일을 가진 오프스크린 박스를 만들어 캡처.
+  // 화면에 보이는 그대로가 이미지로 나옴 (굵게·진회색·코드 박스·줄바꿈 동일)
+  const stage = document.createElement('div');
+  stage.style.cssText =
+    'position:fixed;left:-99999px;top:0;width:520px;box-sizing:border-box;'+
+    'padding:28px 24px;background:'+selectedBg+';color:'+(dark?'#f0ece6':'#1c1917')+';'+
+    'font-family:'+sysFont+';font-size:19px;line-height:1.7;'+
+    'letter-spacing:-0.3px;white-space:pre-wrap;word-break:break-word';
+  stage.innerHTML = renderMarkup(result,dark);
+  document.body.appendChild(stage);
 
-  const lines = [];
-  result.split('\n').forEach(para => {
-    if(para.trim() === ''){lines.push('');return;}
-    let line = '';
-    for(const ch of para){
-      const test = line + ch;
-      if(tc.measureText(test).width > maxWidth && line){
-        lines.push(line);
-        line = ch;
-      } else {
-        line = test;
-      }
-    }
-    if(line) lines.push(line);
-  });
+  try{
+    await document.fonts.ready;
+    const scale = Math.min(3, (window.devicePixelRatio||1)*1.5);
+    const canvas = await html2canvas(stage, {
+      backgroundColor: selectedBg,
+      scale: scale,
+      useCORS: true,
+      logging: false
+    });
+    document.body.removeChild(stage);
 
-  // canvasW already defined above
-  const canvasH = paddingY * 2 + lines.length * lineHeight;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = canvasW;
-  canvas.height = canvasH;
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = selectedBg;
-  ctx.fillRect(0, 0, canvasW, canvasH);
-
-  ctx.fillStyle = '#1c1917';
-  ctx.font = `${fontSize}px ${sysFont}`;
-  ctx.textBaseline = 'top';
-  ctx.letterSpacing = '-0.3px';
-  lines.forEach((line, i) => {
-    ctx.fillText(line, paddingX, paddingY + i * lineHeight);
-  });
-
-  // iOS Safari 호환 — 새 탭으로 열기
-  await document.fonts.ready;
-  ctx.font = `${fontSize}px ${sysFont}`;
-  ctx.fillStyle = selectedBg;
-  ctx.fillRect(0, 0, canvasW, canvasH);
-  ctx.fillStyle = '#1c1917';
-  ctx.textBaseline = 'top';
-  lines.forEach((line, i) => {
-    ctx.fillText(line, paddingX, paddingY + i * lineHeight);
-  });
-  canvas.toBlob(async blob => {
-    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if(isIOS && navigator.share && navigator.canShare){
-      const file = new File([blob], 'cover_text.png', {type:'image/png'});
-      if(navigator.canShare({files:[file]})){
-        try{
-          await navigator.share({files:[file], title:'cover_text'});
-          return;
-        }catch(e){
-          if(e.name==='AbortError') return;
+    await new Promise(res=>{
+      canvas.toBlob(async blob => {
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if(isIOS && navigator.share && navigator.canShare){
+          const file = new File([blob], 'cover_text.png', {type:'image/png'});
+          if(navigator.canShare({files:[file]})){
+            try{ await navigator.share({files:[file], title:'cover_text'}); return res(); }
+            catch(e){ if(e.name==='AbortError') return res(); }
+          }
         }
-      }
-    }
-    // Android / PC 폴백
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.download = 'cover_text_' + Date.now() + '.png';
-    link.href = url;
-    link.click();
-    toast('저장됐어요');
-    setTimeout(()=>URL.revokeObjectURL(url), 5000);
-  }, 'image/png');
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = 'cover_text_' + Date.now() + '.png';
+        link.href = url;
+        link.click();
+        toast('저장됐어요');
+        setTimeout(()=>URL.revokeObjectURL(url), 5000);
+        res();
+      }, 'image/png');
+    });
+  }catch(e){
+    if(stage.parentNode)document.body.removeChild(stage);
+    toast('이미지 저장 실패: '+e.message);
+    console.error(e);
+  }
 }
 
 let tessReady=false;
@@ -622,7 +652,7 @@ function toggleAuto(){
 
 let cuteMode=false;
 let debugMode=false;
-const APP_VER='v17';
+const APP_VER='v22';
 function toggleDebug(){
   debugMode=!debugMode;
   if(ocrData)applyCensor();
@@ -807,15 +837,46 @@ async function doScan(){
   btn.disabled=false; btn.textContent='스캔';
 }
 
+// ===== 한글 자모 합성 =====
+// 테서랙트 LSTM은 글자를 진짜로 분할하지 않고 타임스텝에서 박스를 역산함.
+// 그래서 세로모음(ㅣㅏㅓ…)이 'ㄹ'+'ㅜ'처럼 별도 심볼로 떨어져 나오는 일이 잦음.
+// 매칭 전에 자모 시퀀스를 음절로 합성해 "루루" indexOf가 깨지지 않게 함.
+const _CHO=[...'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ'];
+const _JUNG=[...'ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ'];
+const _JONG=[...'ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ'];
+function composeJamoChars(chars){
+  const out=[];
+  for(let i=0;i<chars.length;i++){
+    const c=chars[i];
+    const ci=_CHO.indexOf(c.ch);
+    if(ci>=0&&i+1<chars.length){
+      const ji=_JUNG.indexOf(chars[i+1].ch);
+      if(ji>=0){
+        let ki=-1,used=2;
+        if(i+2<chars.length){
+          const k=_JONG.indexOf(chars[i+2].ch);
+          // 받침 후보 다음이 모음이면 그 자음은 다음 음절의 초성 → 받침 아님
+          if(k>=0&&!(chars[i+3]&&_JUNG.indexOf(chars[i+3].ch)>=0)){ki=k;used=3;}
+        }
+        // 합성 음절은 첫 자모의 심볼 bbox를 물려받음 (x0 기준점으로 충분)
+        out.push({ch:String.fromCharCode(0xAC00+(ci*21+ji)*28+(ki+1)),sym:c.sym,ci:c.ci,cn:c.cn});
+        i+=used-1;continue;
+      }
+    }
+    out.push(c);
+  }
+  return out;
+}
+
 function applyCensor(){
   if(!origImg||!ocrData)return;
-  const w1=document.getElementById('word1').value.trim().toLowerCase();
-  const w2=document.getElementById('word2').value.trim().toLowerCase();
-  const searchWords=[w1,w2].map(s=>s.replace(/[^\p{L}\p{N}]/gu,'')).filter(Boolean).map(s=>({sw:s,auto:false}));
+  const w1=document.getElementById('word1').value.trim().normalize('NFC').toLowerCase();
+  const w2=document.getElementById('word2').value.trim().normalize('NFC').toLowerCase();
+  const searchWords=[w1,w2].map(s=>s.replace(/[^\p{L}\p{N}]/gu,'')).filter(Boolean).map(s=>({sw:s,auto:false,latin:/^[a-z0-9]{1,4}$/.test(s)}));
   if(autoFilter){
     AUTO_WORDS.forEach(a=>{
       const s=a.toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
-      if(s&&!searchWords.some(e=>e.sw===s)) searchWords.push({sw:s,auto:true});
+      if(s&&!searchWords.some(e=>e.sw===s)) searchWords.push({sw:s,auto:true,latin:/^[a-z0-9]{1,4}$/.test(s)});
     });
   }
   const canvas=document.getElementById('canvas');
@@ -848,17 +909,18 @@ function applyCensor(){
   // 단어 단위 매칭 — 부분 일치면 해당 글자 구간만 가림
   allWords.forEach(w=>{
     // 글자(심볼) 단위 매핑 생성: 정제된 글자 → 심볼 bbox
-    const chars=[];
+    const rawChars=[];
     if(w.symbols&&w.symbols.length){
       w.symbols.forEach(s=>{
-        const t=(s.text||'').toLowerCase();
+        const t=(s.text||'').normalize('NFC').toLowerCase();
         const cs=[...t].filter(ch=>/[\p{L}\p{N}]/u.test(ch));
-        cs.forEach((ch,ci)=>chars.push({ch,sym:s,ci,cn:cs.length}));
+        cs.forEach((ch,ci)=>rawChars.push({ch,sym:s,ci,cn:cs.length}));
       });
     }else{
-      const t=(w.text||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
-      for(const ch of t) chars.push({ch,sym:null,ci:0,cn:1});
+      const t=(w.text||'').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+      for(const ch of t) rawChars.push({ch,sym:null,ci:0,cn:1});
     }
+    const chars=composeJamoChars(rawChars);
     const txt=chars.map(c=>c.ch).join('');
     if(!txt)return;
     const bb=w.bbox;
@@ -866,11 +928,16 @@ function applyCensor(){
       const sw=en.sw;
       let idx=txt.indexOf(sw);
       while(idx>=0){
+        // 짧은 영문 검색어(rr 등)는 앞뒤에 다른 알파벳이 붙어 있으면 건너뜀
+        // → "sorry", "tomorrow" 속 rr을 오인 매칭하지 않음
+        if(en.latin&&(/[a-z0-9]/.test(txt[idx-1]||'')||/[a-z0-9]/.test(txt[idx+sw.length]||''))){
+          idx=txt.indexOf(sw,idx+1);continue;
+        }
         const a=chars[idx], b=chars[idx+sw.length-1];
         let x0,x1;
         // 단어가 순수 한글이면: 단어 폭 ÷ 글자 수 = 정확한 글자 간격 → 등분 계산
         // (한글은 글자 폭이 균일해서 가장 정확. 심볼 좌표의 오차를 우회)
-        const raw=(w.text||'').trim();
+        const raw=(w.text||'').normalize('NFC').trim();
         const pureHangul=raw.length>0&&raw.length===txt.length&&/^[\uac00-\ud7a3]+$/.test(raw);
         if(pureHangul&&/^[\uac00-\ud7a3]+$/.test(sw)){
           const unit=(bb.x1-bb.x0)/txt.length;
@@ -900,22 +967,51 @@ function applyCensor(){
           if(!(estUnit>2)||estUnit>medH*1.4)estUnit=Math.min((bb.x1-bb.x0)/txt.length,medH);
           estUnit=Math.max(estUnit,medH*0.55);
           const A=measureAdvance3(x0,cyy,medH); // 픽셀 자기상관 간격 (3지점 중앙값)
-          // A · OCR추정 · 글자높이×0.97 셋의 중앙값 — 하나가 틀려도 안전
-          const ref=medH*0.97;
+          const ref=medH*0.97; // 글자높이 기준폭
+          const sc=(sw.length===1); // 1글자 검색 여부
           let unitF;
-          if(A){
+          if(sc){
+            // 1글자: 옆 글자 간격을 잴 수 없으니 글자높이폭으로 고정 (e:22 같은 OCR 폭 무시)
+            unitF=A&&Math.abs(A-ref)<=ref*0.25?A:ref;
+          }else if(A&&Math.abs(A-ref)<=ref*0.3){
+            unitF=A; // 픽셀에서 잰 간격이 합리적 범위면 그대로 신뢰 (OCR bbox보다 정확)
+          }else if(A){
             const arr=[A,estUnit,ref].sort((p,q)=>p-q);unitF=arr[1];
           }else{
             unitF=Math.abs(estUnit-ref)<=medH*0.2?estUnit:ref;
           }
           const ideal=sw.length*unitF;
           x1=x0+ideal;
-          [x0,x1]=refineXEdges(x0,x1,cyy,gh,unitF,ideal);
+          [x0,x1]=refineXEdges(x0,x1,cyy,gh,unitF,ideal,sc);
+          if(!sc){
+            // 시작점이 오른쪽으로 밀린 경우 보정 (다글자 전용)
+            const prv=idx>0?chars[idx-1]:null;
+            if(prv&&prv.sym&&prv.sym.bbox&&prv.sym.bbox.x1<x0){
+              x0=Math.max(prv.sym.bbox.x1+1,x0-unitF*0.25);
+            }
+            // 다음 글자(조사 '의' 등) 시작점을 끝선 상한으로
+            const nxt=chars[idx+sw.length];
+            if(nxt&&nxt.sym&&nxt.sym.bbox&&nxt.sym.bbox.x0>x0+ideal*0.45){
+              const padR=Math.max(2,Math.round(fixedH*0.06))+1;
+              x1=Math.min(x1,nxt.sym.bbox.x0-padR);
+            }
+          }
           dbgInfo='W A:'+(A||'x')+' u:'+Math.round(unitF)+' e:'+Math.round(estUnit)+' gh:'+gh;
         }
         const cy=Math.round((bb.y0+bb.y1)/2);
         const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
-        drawCensor(ctx,canvas,x0,cy-Math.round(fixedH/2),x1-x0,fixedH,lbl);
+        let by0=cy-Math.round(fixedH/2);
+        // 바로 옆 박스가 거의 맞닿아 있으면 가로로 잇고, 세로 위치도 그 박스에 통일.
+        // (같은 줄인데 OCR이 글자별 cy를 다르게 잡아 박스가 계단처럼 어긋나는 것 방지)
+        for(const r of drawnRects){
+          if(Math.abs((r.y0+r.y1)/2-cy)>fixedH*0.3)continue;
+          const gap=Math.max(x0,r.x0)-Math.min(x1,r.x1);
+          if(x0<=r.x1+medH*0.3&&x1>=r.x0-medH*0.3&&gap<medH*0.4){
+            x0=Math.min(x0,r.x1);x1=Math.max(x1,r.x0);
+            by0=r.y0; // 세로 정렬 통일
+          }
+        }
+        drawCensor(ctx,canvas,x0,by0,x1-x0,fixedH,lbl);
         if(debugMode&&dbgInfo){
           ctx.save();
           ctx.font=Math.max(9,Math.round(medH*0.38))+'px monospace';
@@ -923,7 +1019,7 @@ function applyCensor(){
           ctx.fillText(dbgInfo,x0,cy+fixedH*0.95);
           ctx.restore();
         }
-        drawnRects.push({x0,x1,y0:cy-fixedH/2,y1:cy+fixedH/2});
+        drawnRects.push({x0,x1,y0:by0,y1:by0+fixedH});
         counts[si]++;
         idx=txt.indexOf(sw,idx+1);
       }
@@ -934,16 +1030,21 @@ function applyCensor(){
   // 이미 가린 자리는 건너뛰어 중복 방지
   if(ocrData.symbols){
     const syms=ocrData.symbols||[];
-    const map=[]; let allText='';
+    const rawSyms=[];
     syms.forEach(s=>{
-      const t=(s.text||'').toLowerCase();
+      const t=(s.text||'').normalize('NFC').toLowerCase();
       const cs=[...t].filter(ch=>/[\p{L}\p{N}]/u.test(ch));
-      cs.forEach((ch,ci)=>{allText+=ch;map.push({sym:s,ci,cn:cs.length});});
+      cs.forEach((ch,ci)=>rawSyms.push({ch,sym:s,ci,cn:cs.length}));
     });
+    const map=composeJamoChars(rawSyms);
+    const allText=map.map(c=>c.ch).join('');
     searchWords.forEach((en,si)=>{
       const sw=en.sw;
       let idx=allText.indexOf(sw);
       while(idx>=0){
+        if(en.latin&&(/[a-z0-9]/.test(allText[idx-1]||'')||/[a-z0-9]/.test(allText[idx+sw.length]||''))){
+          idx=allText.indexOf(sw,idx+1);continue;
+        }
         const a=map[idx];
         const b=map[Math.min(idx+sw.length-1,map.length-1)];
         if(a?.sym?.bbox&&b?.sym?.bbox){
@@ -960,22 +1061,57 @@ function applyCensor(){
             estUnit=Math.max(estUnit,medH*0.55);
             const A=measureAdvance3(x0,cy,medH);
             const ref=medH*0.97;
+            const sc=(sw.length===1);
             let unitF;
-            if(A){
+            if(sc){
+              unitF=A&&Math.abs(A-ref)<=ref*0.25?A:ref;
+            }else if(A&&Math.abs(A-ref)<=ref*0.3){
+              unitF=A;
+            }else if(A){
               const arr=[A,estUnit,ref].sort((p,q)=>p-q);unitF=arr[1];
             }else{
               unitF=Math.abs(estUnit-ref)<=medH*0.2?estUnit:ref;
             }
             const ideal=sw.length*unitF;
             x1=x0+ideal;
-            const r2=refineXEdges(x0,x1,cy,fixedH,unitF,ideal);
+            const r2=refineXEdges(x0,x1,cy,fixedH,unitF,ideal,sc);
             x0=r2[0];x1=r2[1];
+            if(!sc){
+              // 시작점 우측 밀림 보정 (앞 글자 끝 안 넘는 선에서 1/4글자 당김)
+              const prvE=idx>0?map[idx-1]:null;
+              if(prvE&&prvE.sym&&prvE.sym.bbox){
+                const pb=prvE.sym.bbox;
+                if(Math.abs((pb.y0+pb.y1)/2-cy)<fixedH*0.8&&pb.x1<x0){
+                  x0=Math.max(pb.x1+1,x0-unitF*0.25);
+                }
+              }
+              // 다음 글자(조사 등)가 같은 줄이면 그 시작점 − 패딩을 끝선 상한으로
+              const nxtE=map[idx+sw.length];
+              if(nxtE&&nxtE.sym&&nxtE.sym.bbox){
+                const nb=nxtE.sym.bbox;
+                const ncy=(nb.y0+nb.y1)/2;
+                if(Math.abs(ncy-cy)<fixedH*0.8&&nb.x0>x0+ideal*0.45){
+                  const padR=Math.max(2,Math.round(fixedH*0.06))+1;
+                  x1=Math.min(x1,nb.x0-padR);
+                }
+              }
+            }
             dbgF='F A:'+(A||'x')+' u:'+Math.round(unitF)+' e:'+Math.round(estUnit);
           }
           // 줄이 바뀌는 매칭은 무시, 이미 가린 자리도 무시
           if(x1>x0&&Math.abs(cy-cy2)<fixedH*0.8&&!isCovered(x0,x1,cy)){
             const lbl=en.auto?(cuteMode?'~'+(CUTE_MAP[sw]||sw)+'~':autoLabel(sw)):null;
-            drawCensor(ctx,canvas,x0,cy-Math.round(fixedH/2),x1-x0,fixedH,lbl);
+            let by0=cy-Math.round(fixedH/2);
+            // 옆 박스와 가로로 잇고 세로 위치도 통일 (계단 어긋남 방지)
+            for(const r of drawnRects){
+              if(Math.abs((r.y0+r.y1)/2-cy)>fixedH*0.3)continue;
+              const gap=Math.max(x0,r.x0)-Math.min(x1,r.x1);
+              if(x0<=r.x1+medH*0.3&&x1>=r.x0-medH*0.3&&gap<medH*0.4){
+                x0=Math.min(x0,r.x1);x1=Math.max(x1,r.x0);
+                by0=r.y0;
+              }
+            }
+            drawCensor(ctx,canvas,x0,by0,x1-x0,fixedH,lbl);
             if(debugMode&&dbgF){
               ctx.save();
               ctx.font=Math.max(9,Math.round(medH*0.38))+'px monospace';
@@ -983,7 +1119,7 @@ function applyCensor(){
               ctx.fillText(dbgF,x0,cy+fixedH*0.95);
               ctx.restore();
             }
-            drawnRects.push({x0,x1,y0:cy-fixedH/2,y1:cy+fixedH/2});
+            drawnRects.push({x0,x1,y0:by0,y1:by0+fixedH});
             counts[si]++;
           }else if(debugMode){
             // 스킵된 매칭 표시 (줄바뀜 cy차이 / 중복)
@@ -1208,7 +1344,7 @@ function measureAdvance3(x0,cy,h){
 // 실제 픽셀을 보고 글자 사이 빈틈에 박스 양끝을 스냅 → 폰트 무관 정확한 경계
 // ideal = 글자수×글자폭. 끝 경계는 "박스 폭이 ideal에 가장 가까워지는 틈"을 골라
 // 글자 내부 틈(ㅣ 앞 빈공간 등)에 잘못 붙는 걸 방지
-function refineXEdges(x0,x1,cy,h,unit,ideal){
+function refineXEdges(x0,x1,cy,h,unit,ideal,singleChar){
   if(!offCtx)return[x0,x1];
   const cw=offCtx.canvas.width,ch=offCtx.canvas.height;
   const pad=unit*0.6;
@@ -1238,18 +1374,27 @@ function refineXEdges(x0,x1,cy,h,unit,ideal){
   }
   if(runS!==null)gaps.push({s:runS+sx,e:w-1+sx,c:(runS+w-1)/2+sx});
   if(!gaps.length)return[x0,x0+ideal];
-  // 시작 경계: 틈의 '오른쪽 끝'(=글자 잉크 시작 직전)으로
-  // 띄어쓰기가 넓어도 박스가 왼쪽으로 밀리지 않음
-  let nx0=x0,d0=unit*0.45;
+  // 시작 경계: 글자 잉크가 실제 시작하는 지점으로 정렬 (왼쪽 빈틈의 오른쪽 끝)
+  // → ㄱ만 덮고 ㅏ가 튀어나오던 1글자 정렬 오류 해결의 핵심
+  let nx0=x0,d0=unit*0.4;
   gaps.forEach(g=>{
     const d=Math.abs(g.e-x0);
     if(d<d0){d0=d;nx0=g.e;}
   });
+  // 1글자 검색: 끝 경계는 글자 내부 틈(자음↔모음 사이)에 절대 스냅하지 않음.
+  // 시작점 + 글자높이폭으로 고정해 ㄱ+ㅏ 한 글자를 통째로 덮음
+  if(singleChar){
+    return [nx0, nx0+ideal];
+  }
   // 끝 경계: 시작 + 글자수×간격 = 다음 글자 잉크 시작 지점.
   // 그 직전 틈의 중앙으로 살짝 안쪽 스냅 (다음 글자 안 건드림)
+  // 허용오차를 좁게(0.16) 잡고 좁은 틈은 제외 — 마지막 글자 '안쪽' 틈
+  // (자음블록과 ㅣ·ㅏ 세로획 사이)에 끝선이 달라붙어 획이 삐져나오는 걸 방지
   const target=nx0+ideal;
-  let nx1=target-unit*0.06,dBest=unit*0.35;
+  const minGapW=Math.max(2,Math.round(unit*0.06));
+  let nx1=target+unit*0.03,dBest=unit*0.16;
   gaps.forEach(g=>{
+    if(g.e-g.s+1<minGapW)return; // 글자 내부의 좁은 틈은 경계 후보에서 제외
     const d=Math.abs(g.e-target);
     if(d<dBest){dBest=d;nx1=Math.max(g.c,g.e-2);}
   });
@@ -1258,7 +1403,7 @@ function refineXEdges(x0,x1,cy,h,unit,ideal){
 }
 
 function drawCensor(ctx,canvas,x,y,bw,bh,label){
-  const pxL=Math.max(2,Math.round(bh*0.06)),pxR=Math.max(2,Math.round(bh*0.05));
+  const pxL=Math.max(2,Math.round(bh*0.06)),pxR=Math.max(2,Math.round(bh*0.06));
   const rx=Math.max(0,x-pxL);
   const ry=Math.max(0,y);
   const rw=Math.min(bw+pxL+pxR,canvas.width-rx);
