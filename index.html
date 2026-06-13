@@ -349,7 +349,7 @@ html,body{
 </div>
 <div class="crop-modal" id="result-modal">
   <div class="crop-box">
-    <div class="result-text" id="result-text" style="flex:1;min-height:0;width:100%;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:15px;line-height:1.7;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fafaf9;color:var(--text);white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere"></div>
+    <div class="result-text" id="result-text" style="flex:1;min-height:0;width:100%;padding:12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;line-height:1.7;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fafaf9;color:var(--text);white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere"></div>
     <div class="bg-picker">
       <span class="bg-label">배경</span>
       <div class="bg-opts" id="bg-opts"></div>
@@ -576,10 +576,10 @@ async function textToImage(){
   // 화면에 보이는 그대로가 이미지로 나옴 (굵게·진회색·코드 박스·줄바꿈 동일)
   const stage = document.createElement('div');
   stage.style.cssText =
-    'position:fixed;left:-99999px;top:0;width:520px;box-sizing:border-box;'+
-    'padding:28px 24px;background:'+selectedBg+';color:'+(dark?'#f0ece6':'#1c1917')+';'+
-    'font-family:'+sysFont+';font-size:19px;line-height:1.7;'+
-    'letter-spacing:-0.3px;white-space:pre-wrap;word-break:break-word';
+    'position:fixed;left:-99999px;top:0;width:390px;box-sizing:border-box;'+
+    'padding:20px 18px;background:'+selectedBg+';color:'+(dark?'#f0ece6':'#1c1917')+';'+
+    'font-family:'+sysFont+';font-size:14px;line-height:1.75;'+
+    'letter-spacing:-0.3px;white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere';
   stage.innerHTML = renderMarkup(result,dark);
   document.body.appendChild(stage);
 
