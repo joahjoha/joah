@@ -664,7 +664,7 @@ function toggleAuto(){
 
 let cuteMode=false;
 let debugMode=false;
-const APP_VER='v22';
+const APP_VER='v23';
 function toggleDebug(){
   debugMode=!debugMode;
   if(ocrData)applyCensor();
@@ -796,18 +796,20 @@ function unscaleOcr(data,k){
 }
 
 // 워커 재사용 + 정확도 파라미터 (PSM 6: 단일 텍스트 블록 — 세로획 오인식 대폭 감소)
-let tessWorker=null,onProg=null;
-async function getTessWorker(){
-  if(tessWorker)return tessWorker;
-  tessWorker=await Tesseract.createWorker('kor+eng',1,{
+// 언어별로 따로 캐시: 한글은 kor 전용이 정확, 영어 단어 검색 시에만 eng 추가 패스
+let tessWorkers={},onProg=null;
+async function getTessWorker(lang){
+  if(tessWorkers[lang])return tessWorkers[lang];
+  const w=await Tesseract.createWorker(lang,1,{
     logger:m=>{if(onProg)onProg(m);}
   });
-  await tessWorker.setParameters({
+  await w.setParameters({
     tessedit_pageseg_mode:'6',
     preserve_interword_spaces:'1',
     user_defined_dpi:'300'
   });
-  return tessWorker;
+  tessWorkers[lang]=w;
+  return w;
 }
 
 async function doScan(){
@@ -831,10 +833,24 @@ async function doScan(){
         ptxt.textContent=m.status==='recognizing text'?p+'%':'';
       }
     };
-    const worker=await getTessWorker();
-    const result=await worker.recognize(processed);
+    // 한국어 패스 (기본) — 한글은 kor 전용이 가장 정확
+    const korWorker=await getTessWorker('kor');
+    const result=await korWorker.recognize(processed);
     unscaleOcr(result.data,k);
     ocrData=result.data;
+    // 입력 단어에 영어가 있을 때만 영어 패스 추가 후 병합 (한글만 칠 땐 속도 그대로)
+    const w1e=document.getElementById('word1').value.trim();
+    const w2e=document.getElementById('word2').value.trim();
+    if(/[a-z]/i.test(w1e+w2e)){
+      ptxt.textContent='영어 스캔 중...';
+      const engWorker=await getTessWorker('eng');
+      const engRes=await engWorker.recognize(processed);
+      unscaleOcr(engRes.data,k);
+      ocrData={
+        words:[...(result.data.words||[]),...(engRes.data.words||[])],
+        symbols:[...(result.data.symbols||[]),...(engRes.data.symbols||[])]
+      };
+    }
     fill.style.width='100%'; ptxt.textContent='100%';
     const canvas=document.getElementById('canvas');
     const off=document.createElement('canvas');
