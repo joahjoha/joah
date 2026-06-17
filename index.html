@@ -475,8 +475,8 @@ function isDarkBg(hex){
 // HTML 주입 방지를 위해 먼저 escape 후 토큰만 태그로 치환. dark=어두운 배경용 색.
 function renderMarkup(text,dark){
   const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  // …(말줄임표)가 letter-spacing 때문에 점 3개처럼 벌어지는 현상 방지
-  const protectEllipsis=s=>s.replace(/…/g,'<span style="letter-spacing:0">…</span>');
+  // …(말줄임표)를 바닥 점 "..."으로 그린다(글꼴이 가운데 점으로 그리는 것 방지). 간격도 안 벌어지게 묶음.
+  const protectEllipsis=s=>s.replace(/[…⋯]+/g,m=>'<span style="letter-spacing:0">'+'.'.repeat(m.length*3)+'</span>');
   const grayCol = dark?'#b8b2aa':'#6b6560';
   const codeBg  = dark?'#3a3630':'#1c1917';
   const codeFg  = '#f0ece6';
@@ -557,6 +557,24 @@ const BG_COLORS=[
   {name:'피치',color:'#fff3ee'},
   {name:'스카이',color:'#eef5ff'},
   {name:'세이지',color:'#e8f5e8'},
+  // 산뜻한 밝은 톤
+  {name:'버터',color:'#fdf3cf'},
+  {name:'페리윙클',color:'#ebeefb'},
+  {name:'그레이지',color:'#f1ede4'},
+  // 차분하고 세련된 무드 톤 (다 밝은 색 = 검은 글자)
+  {name:'더스티블루',color:'#dce6ea'},
+  {name:'모브',color:'#f0e3ea'},
+  {name:'클레이',color:'#f2e2cf'},
+  {name:'옅은카키',color:'#e8e7d3'},
+  {name:'살몬',color:'#fce2d8'},
+  {name:'안개',color:'#ededee'},
+  // 산뜻하게 다른 계열
+  {name:'연두',color:'#eaf2cd'},
+  {name:'아쿠아',color:'#d4eeee'},
+  // 그라데이션
+  {name:'선셋',color:'linear-gradient(135deg,#ffe1c4,#ffd2e0)'},
+  {name:'오로라',color:'linear-gradient(135deg,#d4f3e6,#dce8ff)'},
+  {name:'라벤더드림',color:'linear-gradient(135deg,#e6dcff,#ffdcf0)'},
 ];
 let selectedBg=BG_COLORS[0].color;
 const bgOpts=document.getElementById('bg-opts');
@@ -599,7 +617,7 @@ async function textToImage(){
     await document.fonts.ready;
     const scale = Math.min(3, (window.devicePixelRatio||1)*1.5);
     const canvas = await html2canvas(stage, {
-      backgroundColor: selectedBg,
+      backgroundColor: /gradient/i.test(selectedBg) ? null : selectedBg,
       scale: scale,
       useCORS: true,
       logging: false
@@ -787,7 +805,10 @@ function getProcessedCanvas(srcImg){
   const d=id.data;
   for(let i=0;i<d.length;i+=4){
     const avg=(d[i]+d[i+1]+d[i+2])/3;
-    const v=avg<180?Math.max(0,avg-30):Math.min(255,avg+20);
+    // 대비 강화: 회색 글씨는 더 진하게, 배경은 더 밝게 (회색조 유지 → 가는 획 보존, OCR 안정)
+    let v;
+    if(avg<195){ v=Math.max(0, Math.round((avg-195)*1.9 + 150)); } // 글씨: 진하게 끌어내림
+    else { v=Math.min(255, Math.round((avg-195)*1.2 + 200)); }      // 배경: 흰색으로
     d[i]=d[i+1]=d[i+2]=v;
   }
   ctx.putImageData(id,0,0);
@@ -898,8 +919,21 @@ function composeJamoChars(chars){
           // 받침 후보 다음이 모음이면 그 자음은 다음 음절의 초성 → 받침 아님
           if(k>=0&&!(chars[i+3]&&_JUNG.indexOf(chars[i+3].ch)>=0)){ki=k;used=3;}
         }
-        // 합성 음절은 첫 자모의 심볼 bbox를 물려받음 (x0 기준점으로 충분)
-        out.push({ch:String.fromCharCode(0xAC00+(ci*21+ji)*28+(ki+1)),sym:c.sym,ci:c.ci,cn:c.cn});
+        // 합성 음절의 bbox = 구성 자모 심볼들의 합집합 (ㅇ+ㅢ→의: ㅣ까지 포함해야 오른쪽 끝이 맞음)
+        const parts=[c,chars[i+1]];
+        if(used===3)parts.push(chars[i+2]);
+        let mergedSym=c.sym;
+        const bbs=parts.map(p=>p&&p.sym&&p.sym.bbox).filter(Boolean);
+        if(bbs.length){
+          const bb={
+            x0:Math.min(...bbs.map(b=>b.x0)),
+            y0:Math.min(...bbs.map(b=>b.y0)),
+            x1:Math.max(...bbs.map(b=>b.x1)),
+            y1:Math.max(...bbs.map(b=>b.y1))
+          };
+          mergedSym=Object.assign({},c.sym,{bbox:bb});
+        }
+        out.push({ch:String.fromCharCode(0xAC00+(ci*21+ji)*28+(ki+1)),sym:mergedSym,ci:c.ci,cn:c.cn});
         i+=used-1;continue;
       }
     }
@@ -1177,11 +1211,11 @@ function applyCensor(){
             const firstC=chars[idx];
             let refW=(sw.length>=2&&firstC&&firstC.sym&&firstC.sym.bbox)?(firstC.sym.bbox.x1-firstC.sym.bbox.x0):medH*0.9;
             if(refW<medH*0.4)refW=medH*0.9;
-            if(lastW>refW*1.45){
+            if(sw.length>=2&&lastW>refW*1.45){
               // 마지막 글자 박스가 비정상적으로 넓음 = 다음 글자(의)와 병합됨 → 한 글자폭에서 자름
               xr=lastC.sym.bbox.x0+refW;
             }else if(lastW<medH*0.55){
-              // 비정상적으로 좁음 = 글자 쪼갬(오→오+2) → 붙은 좁은 조각만 흡수
+              // 비정상적으로 좁음 = 글자 쪼갬(오→오+2, 의→의+ㅣ) → 붙은 좁은 조각만 흡수 (한 글자 포함)
               let k2=idx+sw.length;
               while(k2<chars.length){
                 const c=chars[k2];
@@ -1191,9 +1225,10 @@ function applyCensor(){
                 else break;
               }
             }
-            const drawPad=Math.max(2,Math.round(fixedH*0.06));
-            x1=xr-drawPad; // drawCensor가 다시 +drawPad → 그려진 끝 = 글자 경계 = 다음 글자 직전
-            xCeil=Math.min(bb.x1,xr);
+            // sw.length===1(한 글자)면 위 보정 없이 그 글자 박스를 그대로 사용
+            if(sw.length===1)xr=extendThinTail(xr,cy,fixedH); // 한 글자(의)일 때만 붙은 ㅣ 획 포함. 여러 글자면 다음 글자 침범 방지 위해 끔.
+            x1=xr; // 패딩 0 → 그려진 끝 = x1 = 글자 경계(다음 글자 '의' 직전)
+            xCeil=Math.max(Math.min(bb.x1,xr),xr);
           }else{
             xCeil=Math.min(xCeil,propR+medH*0.12);
           }
@@ -1274,7 +1309,7 @@ function applyCensor(){
                 const firstM=map[idx];
                 let refW=(sw.length>=2&&firstM&&firstM.sym&&firstM.sym.bbox)?(firstM.sym.bbox.x1-firstM.sym.bbox.x0):medH*0.9;
                 if(refW<medH*0.4)refW=medH*0.9;
-                if(lastW>refW*1.45){
+                if(sw.length>=2&&lastW>refW*1.45){
                   xr=lastM.sym.bbox.x0+refW;
                 }else if(lastW<medH*0.55){
                   let k2=idx+sw.length;
@@ -1288,8 +1323,8 @@ function applyCensor(){
                     else break;
                   }
                 }
-                const drawPad=Math.max(2,Math.round(fixedH*0.06));
-                if(xr-drawPad>x0)x1=xr-drawPad;
+                if(sw.length===1)xr=extendThinTail(xr,cy2,fixedH); // 한 글자일 때만
+                if(xr>x0)x1=xr; // 패딩 0 → 그려진 끝 = 글자 경계
               }
             }
             // 앞 글자 침범 방지(같은 줄)
@@ -1376,32 +1411,6 @@ function applyCensor(){
         }
       });
     });
-  })();
-
-  // 같은 줄에서 인접한 가림 박스 사이의 '작은 틈'만 메워 한 덩어리로 만든다.
-  // (긴 구절이 음절·단어별로 끊겨 보이는 것 방지) 가려진 영역끼리만 잇고,
-  // 안 가려진 글자로는 번지지 않음(틈이 ~1.6글자보다 크면 잇지 않음).
-  (function bridgeMaskGaps(){
-    if(drawnRects.length<2)return;
-    const rects=drawnRects.slice().sort((a,b)=>{
-      const ca=(a.y0+a.y1)/2, cb=(b.y0+b.y1)/2;
-      if(Math.abs(ca-cb)>fixedH*0.55)return ca-cb;
-      return a.x0-b.x0;
-    });
-    const thr=medH*1.6; // 띄어쓰기(약 1글자)까지는 잇고, 더 큰 틈(안 가린 글자)은 두기
-    const added=[];
-    for(let i=0;i<rects.length-1;i++){
-      const r=rects[i], n=rects[i+1];
-      const cr=(r.y0+r.y1)/2, cn=(n.y0+n.y1)/2;
-      if(Math.abs(cr-cn)>fixedH*0.55)continue; // 다른 줄
-      const gap=n.x0-r.x1;
-      if(gap>1&&gap<thr){
-        const y0=Math.min(r.y0,n.y0);
-        drawCensor(ctx,canvas,r.x1,y0,gap,fixedH,null);
-        added.push({x0:r.x1,x1:n.x0,y0,y1:y0+fixedH});
-      }
-    }
-    added.forEach(a=>drawnRects.push(a));
   })();
 
   // 진단 모드: OCR이 인식한 단어 영역과 읽은 텍스트를 표시
@@ -1761,8 +1770,38 @@ function rightInkOfSyllableAt(anchorX,cy,h){
   return sx+last;
 }
 
+// xr에서 오른쪽으로 '글자에 붙은 얇은 세로획'(예: 의의 ㅣ)만 픽셀로 따라가 포함한다.
+// OCR이 ㅣ를 심볼로 안 잡아도 동작. 폭이 넓은 '다음 글자'는 포함하지 않아 침범 방지.
+function extendThinTail(xr,cy,h){
+  if(!offCtx)return xr;
+  const cw=offCtx.canvas.width,chh=offCtx.canvas.height;
+  const sx=Math.max(0,Math.round(xr-2)),ex=Math.min(cw-1,Math.round(xr+h*0.5));
+  if(ex-sx<3)return xr;
+  const sy=Math.max(0,Math.round(cy-h*0.45)),ey=Math.min(chh-1,Math.round(cy+h*0.45));
+  const W=ex-sx+1,H=ey-sy+1;if(H<4)return xr;
+  let img;try{img=offCtx.getImageData(sx,sy,W,H).data;}catch(e){return xr;}
+  const lum=p=>0.299*img[p]+0.587*img[p+1]+0.114*img[p+2];
+  const samp=[];for(let i=0;i<img.length;i+=40)samp.push(lum(i-(i%4)));
+  samp.sort((a,b)=>a-b);const bg=samp[Math.floor(samp.length/2)];
+  const need=Math.max(1,Math.round(H*0.06));
+  const ink=new Array(W);
+  for(let xx=0;xx<W;xx++){let c=0;for(let yy=0;yy<H;yy++){if(Math.abs(lum((yy*W+xx)*4)-bg)>50)c++;}ink[xx]=c>=need?1:0;}
+  const maxGap=Math.max(2,Math.round(h*0.13));   // 글자에 붙었다고 볼 최대 틈
+  const thinMax=Math.max(3,Math.round(h*0.17));  // '얇은 획'으로 볼 최대 폭(ㅣ). 이보다 넓으면 다음 글자
+  let pos=Math.round(xr)-sx;if(pos<0)pos=0;
+  let result=xr;
+  while(pos<W){
+    let g=0;while(pos<W&&!ink[pos]){g++;pos++;}
+    if(pos>=W||g>maxGap)break;
+    let rs=pos;while(pos<W&&ink[pos])pos++;
+    if(pos-rs<=thinMax)result=sx+pos-1; // 얇은 획 → 포함하고 계속
+    else break;                         // 넓은 글자 → 중단(침범 방지)
+  }
+  return Math.max(xr,result);
+}
+
 function drawCensor(ctx,canvas,x,y,bw,bh,label){
-  const pxL=Math.max(2,Math.round(bh*0.06)),pxR=Math.max(2,Math.round(bh*0.06));
+  const pxL=0,pxR=0; // 바깥 패딩 없음 — 그려진 박스가 정확히 [x, x+bw]. 앞/뒤 글자 침범 방지.
   const rx=Math.max(0,x-pxL);
   const ry=Math.max(0,y);
   const rw=Math.min(bw+pxL+pxR,canvas.width-rx);
