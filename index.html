@@ -293,9 +293,9 @@ html,body{
       <div class="chips">
         <div class="chip" id="chip-auto" onclick="toggleAuto()"><span class="dot"></span>야한 단어 자동</div>
         <div class="chip" id="chip-cute" style="display:none" onclick="toggleCute()"><span class="dot"></span>귀여운 말로</div>
-        <div class="chip on" id="chip-fuzzy" onclick="toggleFuzzy()"><span class="dot"></span>오타 보정</div>
+        <div class="chip" id="chip-fuzzy" onclick="toggleFuzzy()"><span class="dot"></span>오타 보정</div>
       </div>
-      <div class="hint">오타 보정은 받침을 잘못 읽어도 찾아줘요.
+      <div class="hint">단어를 못 찾을 때만 <b>오타 보정</b>을 켜보세요. 받침을 잘못 읽어도 찾아주지만, 비슷한 낱말까지 가릴 수 있어요.
         <button class="linkbtn" id="chip-debug" onclick="toggleDebug()">글자 인식 확인</button>
       </div>
     </div>
@@ -444,7 +444,7 @@ html,body{
    핵심 변경: 덮개 상자의 좌표를 OCR 글자상자가 아니라
              "원본 픽셀의 잉크 경계"에서 직접 만든다.
    ========================================================================== */
-const APP_VER='v38';
+const APP_VER='v39';
 document.getElementById('ver').textContent=APP_VER;
 
 /* ---------- 상태 ---------- */
@@ -453,7 +453,7 @@ let seq=0;
 let activeId=null;
 let currentStyle='black';
 let selectedEmoji='🌸';
-let autoFilter=false, cuteMode=false, fuzzyMode=true, debugMode=false;
+let autoFilter=false, cuteMode=false, fuzzyMode=false, debugMode=false;
 let tessReady=false, scanning=false;
 
 const AUTO_WORDS=['보지','자지','섹스','성기','자위','발기','사정','음경','음부','음모','질내','삽입','애무','오르가즘','오르가슴','페니스','클리토리스','정액','정자','난자','콘돔','젖꼭지','유두','자궁','음란','야동','포르노','딜도','바이브레이터','후장','항문섹스','구강성교','펠라','쿤닐링구스','조루','발정','교미','성교','성행위','성관계','자궁구','대음순','지스팟','보짓물','질구','귀두','쿠퍼액','음낭','전립선','회음부','뒷보지','애널','방광'];
