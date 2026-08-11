@@ -1582,6 +1582,7 @@ async function rescanOne(){
 }
 
 async function toBlob(canvas){return new Promise(r=>canvas.toBlob(r,'image/png'));}
+function isAndroid(){return /Android/i.test(navigator.userAgent);}
 
 async function saveOne(){
   const s=activeShot();
@@ -1590,7 +1591,7 @@ async function saveOne(){
   const idx=String(shots.indexOf(s)+1).padStart(2,'0');
   const file=new File([blob],'가림_'+idx+'.png',{type:'image/png'});
   try{
-    if(navigator.canShare&&navigator.canShare({files:[file]})){
+    if(!isAndroid()&&navigator.canShare&&navigator.canShare({files:[file]})){
       await navigator.share({files:[file],title:'가림'});return;
     }
   }catch(e){if(e.name==='AbortError')return;}
@@ -1612,7 +1613,7 @@ async function saveAll(){
       files.push(new File([b],'가림_'+String(i+1).padStart(2,'0')+'.png',{type:'image/png'}));
     }
     try{
-      if(navigator.canShare&&navigator.canShare({files})){
+      if(!isAndroid()&&navigator.canShare&&navigator.canShare({files})){
         await navigator.share({files,title:'가림'});return;
       }
     }catch(e){if(e.name==='AbortError')return;}
@@ -2031,7 +2032,7 @@ async function textToImage(){
     const blob=await toBlob(canvas);
     const file=new File([blob],'가림_텍스트.png',{type:'image/png'});
     try{
-      if(navigator.canShare&&navigator.canShare({files:[file]})){
+      if(!isAndroid()&&navigator.canShare&&navigator.canShare({files:[file]})){
         await navigator.share({files:[file],title:'가림'});return;
       }
     }catch(e){if(e.name==='AbortError')return;}
