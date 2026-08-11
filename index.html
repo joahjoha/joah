@@ -444,7 +444,7 @@ html,body{
    핵심 변경: 덮개 상자의 좌표를 OCR 글자상자가 아니라
              "원본 픽셀의 잉크 경계"에서 직접 만든다.
    ========================================================================== */
-const APP_VER='v35';
+const APP_VER='v38';
 document.getElementById('ver').textContent=APP_VER;
 
 /* ---------- 상태 ---------- */
@@ -822,6 +822,46 @@ function toCharBoxes(an,chars){
   return out;
 }
 
+/* 덮개가 실제로 덮어야 할 세로 범위를, 그 자리 글자만 보고 잰다.
+   줄 전체의 잉크 띠를 쓰면 그 줄 어딘가의 깊은 받침이나 따옴표 때문에
+   덮개가 필요 이상으로 커진다. */
+function inkVertical(ctx,x0,x1,bandTop,bandBottom,approxH){
+  const m=Math.max(2,Math.round(approxH*0.5));
+  const p=inkProfile(ctx,x0,bandTop-m,x1,bandBottom+m);
+  if(!p)return null;
+  const {lum,W,H,sx,sy,bg,thr}=p;
+  const rowInk=new Int32Array(H);
+  for(let y=0;y<H;y++){
+    const o=y*W;let n=0;
+    for(let xx=0;xx<W;xx++)if(Math.abs(lum[o+xx]-bg)>thr)n++;
+    rowInk[y]=n;
+  }
+  const minRow=Math.max(1,Math.round(W*0.02));
+  const maxRow=W*0.94;
+  const ok=y=>rowInk[y]>=minRow&&rowInk[y]<=maxRow;
+  let cy=Math.round((bandTop+bandBottom)/2-sy);
+  cy=Math.max(0,Math.min(H-1,cy));
+  if(!ok(cy)){
+    let f=-1;
+    for(let d=1;d<H;d++){
+      if(cy-d>=0&&ok(cy-d)){f=cy-d;break;}
+      if(cy+d<H&&ok(cy+d)){f=cy+d;break;}
+    }
+    if(f<0)return null;
+    cy=f;
+  }
+  // '루'의 ㄹ과 ㅜ 사이처럼 한 글자 안에도 가로로 빈 줄이 생긴다.
+  // 이 틈을 못 건너면 글자의 절반만 재고 덮개가 위로 붕 뜬다.
+  // 줄과 줄 사이 간격보다는 작게 잡아 아랫줄까지 삼키지는 않게 한다.
+  const gapTol=Math.max(2,Math.round(approxH*0.32));
+  let top=cy,g=0;
+  for(let y=cy;y>=0;y--){if(ok(y)){top=y;g=0;}else{g++;if(g>gapTol)break;}}
+  g=0;let bot=cy;
+  for(let y=cy;y<H;y++){if(ok(y)){bot=y;g=0;}else{g++;if(g>gapTol)break;}}
+  if(bot-top>approxH*1.7)return null;   // 아랫줄까지 삼켰으면 포기하고 줄 띠를 쓴다
+  return {top:top+sy,bottom:bot+sy};
+}
+
 /* ==========================================================================
    OCR 결과 → 줄 단위 글자 흐름
    ========================================================================== */
@@ -895,7 +935,8 @@ function buildLines(words,srcCtx,medH){
         const bb=o.bb,u=(bb.x1-bb.x0)/chars.length;
         boxes=chars.map((_,i)=>({x0:bb.x0+u*i,x1:bb.x0+u*(i+1)}));
       }
-      chars.forEach((c,i)=>L.stream.push({ch:c.ch,box:boxes[i],word:o.w}));
+      const wi=L.stream.length?L.stream[L.stream.length-1].wi+1:0;
+      chars.forEach((c,i)=>L.stream.push({ch:c.ch,box:boxes[i],word:o.w,wi}));
     });
     // 줄의 위·아래: 가운데에서 크게 벗어나거나 비정상적으로 키 큰 띠는 빼고 합친다
     let top,bot;
@@ -1084,7 +1125,7 @@ function censorShot(shot){
   const hs=allW.map(w=>w.bbox.y1-w.bbox.y0).filter(h=>h>2).sort((a,b)=>a-b);
   const medH=hs.length?hs[Math.floor(hs.length/2)]:20;
 
-  const drawn=[];
+  const drawn=[],found=[];
   const hitCount=new Map();targets.forEach(t=>hitCount.set(t.sw,0));
 
   function overlaps(x0,x1,y0,y1){
@@ -1123,14 +1164,18 @@ function censorShot(shot){
           if(i+len>L.map.length)return;
           const a=L.stream[L.map[i]],b=L.stream[L.map[i+len-1]];
           if(!a||!b||!a.box||!b.box)return;
-          // 영어는 단어 경계 확인 (his 안의 is 같은 걸 가리지 않도록)
-          if(t.latin){
-            const before=L.plain[i-1]||'',after=L.plain[i+len]||'';
-            if(/[a-z0-9]/i.test(before)||/[a-z0-9]/i.test(after))return;
-          }
-          let x0=a.box.x0,x1=b.box.x1;
           const pv=L.map[i-1]!=null?L.stream[L.map[i-1]]:null;
           const nx=L.map[i+len]!=null?L.stream[L.map[i+len]]:null;
+          // 영어는 낱말 경계 확인 (his 안의 is 같은 걸 가리지 않도록).
+          // plain 은 띄어쓰기를 뺀 문자열이라 그것만 보면 모든 영단어가 붙어 보인다.
+          // 실제로 낱말이 나뉘었는지는 OCR 낱말 번호와 글자 사이 간격으로 판단한다.
+          if(t.latin){
+            const gapL=L.pitch*0.35,gapR=L.pitch*0.35;
+            const brk=(p,q,g)=>!p||!q||p.wi!==q.wi||(q.box&&p.box&&q.box.x0-p.box.x1>g);
+            if(!brk(pv,a,gapL))return;
+            if(!brk(b,nx,gapR))return;
+          }
+          let x0=a.box.x0,x1=b.box.x1;
           // ★ 상자 크기 통일: 글자 수 × 글자 간격.
           //   한글은 글자 폭이 일정하니 같은 단어면 어디서 찾든 같은 크기가 나온다.
           // 상자 크기 통일: '글자 수 × 글자 간격' 을 기본으로 하되
@@ -1145,14 +1190,10 @@ function censorShot(shot){
           if(pv&&pv.box)x0=Math.max(x0,Math.min(pv.box.x1,a.box.x0)-room);
           if(nx&&nx.box)x1=Math.min(x1,Math.max(nx.box.x0,b.box.x1)+room);
           // 마지막 안전장치 — 어떤 계산을 거쳤든 글자 칸보다 좁아지지는 않게
-          x0=Math.min(x0,a.box.x0);x1=Math.max(x1,b.box.x1);
-          const vpad=Math.max(2,Math.round(L.lineH*0.10));
-          const y0=L.top-vpad,y1=L.bottom+vpad;
+          x0=Math.min(x0,a.box.x0);x1=Math.max(x1,b.box.x1+1);
           if(!(x1>x0))return;
-          if(overlaps(x0,x1,y0,y1)){hitCount.set(t.sw,hitCount.get(t.sw)+1);return;}
           const lbl=t.auto?(cuteMode?'~'+(CUTE_MAP[t.sw]||t.sw)+'~':autoLabel(t.sw)):null;
-          drawCensor(ctx,srcCtx,canvas,x0,y0,x1-x0,y1-y0,lbl);
-          drawn.push({x0,x1,y0,y1});
+          found.push({L,x0,x1,lbl,sw:t.sw,ix0:a.box.x0,ix1:b.box.x1});
           hitCount.set(t.sw,hitCount.get(t.sw)+1);
         });
       });
@@ -1161,6 +1202,44 @@ function censorShot(shot){
 
   pass('kor',korData.words||[],korTargets);
   pass('eng',(engData&&engData.words)||korData.words||[],engTargets);
+
+  // ★ 세로 크기 정하기
+  //   ① 덮을 자리의 글자만 보고 실제 높이를 잰다 (줄 전체가 아니라)
+  //   ② 글자 크기가 같은 것끼리 가장 큰 값으로 맞춰 사진 안에서 크기를 통일한다
+  found.forEach(f=>{
+    // 세로 측정은 옆 글자가 안 섞이게 '글자 칸' 범위에서만
+    const v=inkVertical(srcCtx,f.ix0,f.ix1,f.L.top,f.L.bottom,f.L.approxH);
+    // 측정값은 '잉크가 있는 마지막 줄'이고 상자는 [y0,y1) 범위를 칠하므로
+    // 아래쪽은 +1 을 더해야 마지막 줄까지 덮인다. 흐린 가장자리 몫으로 1px 더.
+    const t=(v?v.top:f.L.top)-1,b=(v?v.bottom:f.L.bottom)+2;
+    f.top=t;f.bot=b;f.cy=(t+b)/2;f.ih=Math.max(4,b-t);
+  });
+  // 같은 '단어 + 같은 글자 크기'끼리만 높이를 맞춘다.
+  // 모든 단어를 한 크기로 묶으면, 받침 깊은 단어 하나 때문에
+  // 받침 없는 단어(루루 같은)까지 덩달아 커진다.
+  const vb={};
+  found.forEach(f=>{
+    const k=Math.round(Math.log(Math.max(4,f.L.approxH))/Math.log(1.28))+'|'+f.sw;
+    (vb[k]=vb[k]||[]).push(f);
+  });
+  Object.keys(vb).forEach(k=>{
+    const g=vb[k];
+    let H=0;g.forEach(f=>{if(f.ih>H)H=f.ih;});
+    H+=Math.max(1,Math.round(H*0.03))*2;
+    g.forEach(f=>{
+      let y0=Math.round(f.cy-H/2),y1=y0+H;
+      // 높이는 그대로 두고 위치만 밀어서, 반올림 때문에 획 끝이 남는 일이 없게
+      if(y0>f.top){const d=y0-f.top;y0-=d;y1-=d;}
+      if(y1<f.bot){const d=f.bot-y1;y0+=d;y1+=d;}
+      f.y0=y0;f.y1=y1;
+    });
+  });
+  found.sort((a,b)=>a.y0-b.y0||a.x0-b.x0);
+  found.forEach(f=>{
+    if(overlaps(f.x0,f.x1,f.y0,f.y1))return;
+    drawCensor(ctx,srcCtx,canvas,f.x0,f.y0,f.x1-f.x0,f.y1-f.y0,f.lbl);
+    drawn.push({x0:f.x0,x1:f.x1,y0:f.y0,y1:f.y1});
+  });
 
   if(debugMode){
     ctx.save();
@@ -1582,6 +1661,7 @@ async function rescanOne(){
 }
 
 async function toBlob(canvas){return new Promise(r=>canvas.toBlob(r,'image/png'));}
+// 안드로이드(갤럭시)는 공유 시트로 넘기면 저장이 잘 안 돼서 바로 내려받게 한다
 function isAndroid(){return /Android/i.test(navigator.userAgent);}
 
 async function saveOne(){
