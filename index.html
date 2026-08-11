@@ -444,7 +444,7 @@ html,body{
    핵심 변경: 덮개 상자의 좌표를 OCR 글자상자가 아니라
              "원본 픽셀의 잉크 경계"에서 직접 만든다.
    ========================================================================== */
-const APP_VER='v34';
+const APP_VER='v35';
 document.getElementById('ver').textContent=APP_VER;
 
 /* ---------- 상태 ---------- */
@@ -757,17 +757,35 @@ function toCharBoxes(an,chars){
   }
   if(sum!==n)return null;
 
-  // ③ 묶음 안 균등 분할 + 실제 틈으로 스냅
+  // ③ 묶음 안을 '글자 폭 비율'대로 나눈 뒤 실제 틈으로 스냅
+  //    한글은 폭이 같지만 따옴표·쉼표는 훨씬 좁다.
+  //    이걸 무시하고 똑같이 나누면 칸 경계가 통째로 밀려서
+  //    덮개가 글자 오른쪽을 잘라먹는다.  " 아 가 야 ,  ← 이런 조합에서 특히.
+  const used=[];
+  for(let i=0;i<nAll;i++)if(useAll||isLetter[i])used.push(chars[i].ch);
+  const widthOf=ch=>{
+    if(/[\uAC00-\uD7A3\u3130-\u318F\u4E00-\u9FFF\u3040-\u30FF]/.test(ch))return 1;      // 한글·한자·가나
+    if(/[0-9A-Za-z]/.test(ch))return 0.62;                                                  // 영문·숫자
+    return 0.42;                                                                            // 따옴표·쉼표 등
+  };
+  const wts=used.map(widthOf);
   const cells=[];
+  let ci=0;
   blocks.forEach((b,bi)=>{
     const k=alloc[bi],bx0=b[0].x0,bx1=b[b.length-1].x1;
-    const cw=(bx1-bx0+1)/k;
+    const my=wts.slice(ci,ci+k);ci+=k;
+    let tw=0;my.forEach(v=>tw+=v);
+    if(!(tw>0)){tw=k;for(let i=0;i<k;i++)my[i]=1;}
+    const span=bx1-bx0+1,unit=span/tw;
     const gaps=[];
     for(let i=0;i<b.length-1;i++)gaps.push((b[i].x1+b[i+1].x0)/2);
     const cuts=[bx0-0.5];
-    for(let i=1;i<k;i++){
-      const ideal=bx0+cw*i;
-      let pick=ideal,bd=cw*0.36;
+    let acc=0;
+    for(let i=0;i<k-1;i++){
+      acc+=my[i];
+      const ideal=bx0+unit*acc;
+      const win=Math.max(unit*my[i],unit*(my[i+1]||1))*0.4;
+      let pick=ideal,bd=win;
       gaps.forEach(g=>{const d=Math.abs(g-ideal);if(d<bd){bd=d;pick=g;}});
       cuts.push(Math.max(cuts[cuts.length-1]+1,pick));
     }
@@ -927,8 +945,10 @@ function buildLines(words,srcCtx,medH){
     const g=buckets[k];
     const hs=g.map(L=>L.bottom-L.top).sort((a,b)=>a-b);
     const ps=g.map(L=>L.pitch).sort((a,b)=>a-b);
-    // 높이는 넉넉한 쪽(상위 20%)에 맞춰야 키 큰 글자도 안 잘린다
-    const H=hs[Math.min(hs.length-1,Math.floor(hs.length*0.8))];
+    // 높이는 '가장 큰 줄'에 맞춘다. 평균이나 상위 80%로 맞추면
+    // 받침이 깊거나 획이 위로 솟은 줄에서 글자 끝이 상자 밖으로 삐져나온다.
+    // (줄마다 이미 한 줄 높이로 제한해 뒀으니 이 최댓값이 터무니없이 커지지 않는다)
+    const H=hs[hs.length-1];
     const P=ps[ps.length>>1];
     g.forEach(L=>{
       const c=(L.top+L.bottom)/2;
@@ -1113,19 +1133,19 @@ function censorShot(shot){
           const nx=L.map[i+len]!=null?L.stream[L.map[i+len]]:null;
           // ★ 상자 크기 통일: 글자 수 × 글자 간격.
           //   한글은 글자 폭이 일정하니 같은 단어면 어디서 찾든 같은 크기가 나온다.
+          // 상자 크기 통일: '글자 수 × 글자 간격' 을 기본으로 하되
+          // 잉크가 더 넓으면 잉크를 따르고, 양쪽에 같은 여유를 준다.
           const ideal=Math.round(len*L.pitch);
+          const bleed=Math.max(2,Math.round(L.pitch*0.09));
           const cx=(x0+x1)/2;
-          if(ideal>x1-x0){
-            x0=Math.round(cx-ideal/2);x1=x0+ideal;
-          }else{
-            // 잉크가 더 넓으면(자간 넓은 글꼴 등) 잉크 쪽을 살리고 살짝만 번지게
-            const bleed=Math.max(2,Math.round(L.lineH*0.09));
-            x0-=bleed;x1+=bleed;
-          }
+          const w=Math.max(ideal,x1-x0)+bleed*2;
+          x0=Math.round(cx-w/2);x1=x0+w;
           // 옆 글자 안쪽까지 파고들지는 않게 — 글자 간격의 12%까지만 허용
           const room=L.pitch*0.12;
           if(pv&&pv.box)x0=Math.max(x0,Math.min(pv.box.x1,a.box.x0)-room);
           if(nx&&nx.box)x1=Math.min(x1,Math.max(nx.box.x0,b.box.x1)+room);
+          // 마지막 안전장치 — 어떤 계산을 거쳤든 글자 칸보다 좁아지지는 않게
+          x0=Math.min(x0,a.box.x0);x1=Math.max(x1,b.box.x1);
           const vpad=Math.max(2,Math.round(L.lineH*0.10));
           const y0=L.top-vpad,y1=L.bottom+vpad;
           if(!(x1>x0))return;
