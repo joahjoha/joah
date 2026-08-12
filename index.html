@@ -444,7 +444,7 @@ html,body{
    핵심 변경: 덮개 상자의 좌표를 OCR 글자상자가 아니라
              "원본 픽셀의 잉크 경계"에서 직접 만든다.
    ========================================================================== */
-const APP_VER='v39';
+const APP_VER='v41';
 document.getElementById('ver').textContent=APP_VER;
 
 /* ---------- 상태 ---------- */
@@ -794,18 +794,29 @@ function toCharBoxes(an,chars){
   });
   if(cells.length!==n)return null;
 
-  // ④ 각 칸이, 중심이 그 칸 안에 있는 잉크 덩어리를 통째로 품게 넓힌다
+  // ④ 칸에 걸친 잉크 덩어리를 품게 넓힌다.
+  //    단, 덩어리의 '대부분'이 그 칸 안에 있을 때만.
+  //    중심만 보고 넓히면, 칸 경계가 다음 글자의 첫 획(예: '가'의 ㄱ) 뒤에 떨어졌을 때
+  //    그 획을 통째로 삼켜서 "루루ㄱ" 처럼 옆 글자까지 가려진다.
   const bounds=cells.map(c=>({x0:c.x0,x1:c.x1}));
   runs.forEach(r=>{
-    const c=(r.x0+r.x1)/2;
+    const rw=Math.max(1,r.x1-r.x0+1);
+    let bi=-1,bo=0;
     for(let i=0;i<bounds.length;i++){
-      if(c>=bounds[i].x0&&c<=bounds[i].x1){
-        cells[i].x0=Math.min(cells[i].x0,r.x0);
-        cells[i].x1=Math.max(cells[i].x1,r.x1);
-        break;
-      }
+      const ov=Math.min(r.x1,bounds[i].x1)-Math.max(r.x0,bounds[i].x0)+1;
+      if(ov>bo){bo=ov;bi=i;}
     }
+    if(bi<0||bo/rw<0.6)return;      // 절반 넘게 들어와 있지 않으면 남의 글자로 본다
+    cells[bi].x0=Math.min(cells[bi].x0,r.x0);
+    cells[bi].x1=Math.max(cells[bi].x1,r.x1);
   });
+  // 칸끼리 겹치지 않게 정리 (넓히다 이웃을 침범했을 수 있다)
+  for(let i=1;i<cells.length;i++){
+    if(cells[i].x0<cells[i-1].x1){
+      const mid=(cells[i].x0+cells[i-1].x1)/2;
+      cells[i-1].x1=mid;cells[i].x0=mid;
+    }
+  }
   // ⑤ 바깥쪽 칸은 OCR 단어 상자에서 너무 멀리 벗어나지 않게 묶어 둔다
   if(an.bx0!=null){
     const slack=lineH*0.15;
@@ -1186,7 +1197,7 @@ function censorShot(shot){
           const w=Math.max(ideal,x1-x0)+bleed*2;
           x0=Math.round(cx-w/2);x1=x0+w;
           // 옆 글자 안쪽까지 파고들지는 않게 — 글자 간격의 12%까지만 허용
-          const room=L.pitch*0.12;
+          const room=L.pitch*0.06;
           if(pv&&pv.box)x0=Math.max(x0,Math.min(pv.box.x1,a.box.x0)-room);
           if(nx&&nx.box)x1=Math.min(x1,Math.max(nx.box.x0,b.box.x1)+room);
           // 마지막 안전장치 — 어떤 계산을 거쳤든 글자 칸보다 좁아지지는 않게
