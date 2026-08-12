@@ -444,7 +444,7 @@ html,body{
    핵심 변경: 덮개 상자의 좌표를 OCR 글자상자가 아니라
              "원본 픽셀의 잉크 경계"에서 직접 만든다.
    ========================================================================== */
-const APP_VER='v41';
+const APP_VER='v45';
 document.getElementById('ver').textContent=APP_VER;
 
 /* ---------- 상태 ---------- */
@@ -977,16 +977,61 @@ function buildLines(words,srcCtx,medH){
     });
     L.plain=plain;L.map=map;
     L.skel=[...plain].map(_noJong).join('');
-    // 글자 간격(pitch) — 한글은 글자 폭이 일정해서 상자 크기를 맞추는 기준이 된다
+    // 글자 간격(pitch) — 한글은 글자 폭이 일정해서 상자 크기를 맞추는 기준이 된다.
+    // 이웃 글자 중심 사이 거리를 모아 중앙값을 쓴다. 띄어쓰기만큼 벌어진 간격은 뺀다.
     const gaps=[];
     for(let i=1;i<L.stream.length;i++){
-      const p=L.stream[i-1].box,c=L.stream[i].box;
-      if(!p||!c)continue;
-      const d=(c.x0+c.x1)/2-(p.x0+p.x1)/2;
-      if(d>approxH*0.72&&d<approxH*1.28)gaps.push(d);
+      const p=L.stream[i-1],c=L.stream[i];
+      if(!p.box||!c.box)continue;
+      const d=(c.box.x0+c.box.x1)/2-(p.box.x0+p.box.x1)/2;
+      if(d>approxH*0.62&&d<approxH*1.35)gaps.push(d);
     }
     gaps.sort((a,b)=>a-b);
-    L.pitch=gaps.length?gaps[gaps.length>>1]:approxH;
+    let pitch=gaps.length?gaps[gaps.length>>1]:0;
+    // 표본이 너무 적으면(짧은 줄) 낱말 상자 폭으로 어림잡는다
+    if(gaps.length<3){
+      const adv=[];
+      L.items.forEach(o=>{
+        const cs=charsOfWord(o.w);
+        const han=cs.filter(c=>/[\uAC00-\uD7A3\u4E00-\u9FFF]/.test(c.ch)).length;
+        if(!han||han!==cs.length)return;
+        const w=o.bb.x1-o.bb.x0;
+        if(w>0)adv.push(w/han*1.06);      // 잉크 폭 → 글자 간격 보정
+      });
+      adv.sort((a,b)=>a-b);
+      if(adv.length)pitch=adv[adv.length>>1];
+    }
+    if(!(pitch>0))pitch=approxH;
+    L.pitch=pitch;
+
+    // ★ 칸 폭 상한
+    //   OCR이 낱말 상자를 옆 글자 첫 획까지 넓게 주는 일이 잦다.
+    //   ('가'처럼 ㄱ과 ㅏ가 떨어진 글자 앞에서 특히)
+    //   한글은 글자 폭이 일정하니, 글자 간격보다 눈에 띄게 넓은 칸은 잘라 낸다.
+    // 상한은 '글자 간격'과 '이 줄 칸 폭의 중앙값' 중 작은 쪽으로.
+    // 줄이 짧아 글자 간격 추정이 흔들려도, 칸 폭 중앙값이 잡아 준다.
+    const cws=[];
+    L.stream.forEach(s=>{if(s.box&&/[\uAC00-\uD7A3\u4E00-\u9FFF]/.test(s.ch))cws.push(s.box.x1-s.box.x0);});
+    cws.sort((a,b)=>a-b);
+    const medCW=cws.length?cws[cws.length>>1]:L.pitch;
+    const cap=Math.min(L.pitch*1.12,medCW*1.25);
+    for(let i=0;i<L.stream.length;i++){
+      const s=L.stream[i];
+      if(!s.box)continue;
+      if(!/[\uAC00-\uD7A3\u4E00-\u9FFF]/.test(s.ch))continue;   // 한글·한자만
+      const w=s.box.x1-s.box.x0;
+      if(w<=cap)continue;
+      let pv=null,nx=null;
+      for(let j=i-1;j>=0;j--)if(L.stream[j].box){pv=L.stream[j];break;}
+      for(let j=i+1;j<L.stream.length;j++)if(L.stream[j].box){nx=L.stream[j];break;}
+      // 이웃과 자연스럽게 붙어 있는 쪽을 믿고, 반대쪽을 잘라 낸다
+      const leftOK=pv?Math.abs(s.box.x0-pv.box.x1)<L.pitch*0.45:true;
+      const rightOK=nx?Math.abs(nx.box.x0-s.box.x1)<L.pitch*0.45:true;
+      if(leftOK&&!rightOK)s.box={x0:s.box.x0,x1:s.box.x0+cap};
+      else if(rightOK&&!leftOK)s.box={x0:s.box.x1-cap,x1:s.box.x1};
+      else if(leftOK)s.box={x0:s.box.x0,x1:s.box.x0+cap};
+      else{const c=(s.box.x0+s.box.x1)/2;s.box={x0:c-cap/2,x1:c+cap/2};}
+    }
   });
   const use=lines.filter(L=>L.plain);
   // ★ 글자 크기가 같은 줄끼리 상자 높이·글자폭을 하나로 통일한다.
