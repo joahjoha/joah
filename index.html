@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <meta name="theme-color" content="#f5f5f4"/>
 <title>가림</title>
+<link rel="manifest" href="garim.webmanifest"/>
+<link rel="apple-touch-icon" href="icon-180.png"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="가림"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Hahmlet:wght@800&display=swap" rel="stylesheet"/>
@@ -200,6 +206,18 @@ html,body{
 .icon-btn[disabled]{opacity:.3}
 .detail-tools{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;flex-shrink:0}
 .sublinks{display:flex;justify-content:center;gap:16px;flex-shrink:0}
+/* 읽은 글자 확인 패널 */
+.readout{display:none}
+.readout.show{
+  display:block;margin-top:10px;max-height:34vh;overflow:auto;flex-shrink:0;
+  background:var(--soft);border:1px solid var(--border);border-radius:var(--r);padding:12px 13px
+}
+.ro-line{font-size:13.5px;line-height:1.85;color:var(--text);word-break:break-all}
+.ro-w{padding:1px 2px;border-radius:3px}
+.ro-w.weak{color:#c02626;background:rgba(192,38,38,.09);font-weight:600}
+.ro-foot{margin-top:9px;padding-top:9px;border-top:1px solid var(--border);font-size:11.5px;color:var(--muted)}
+.ro-empty{font-size:12.5px;color:var(--muted);text-align:center;padding:6px 0}
+.ro-sep{height:1px;background:var(--border);margin:12px 0}
 .linkbtn{background:none;border:none;font-family:inherit;font-size:11.5px;color:var(--muted);cursor:pointer;text-decoration:underline;padding:0}
 .linkbtn.on{color:var(--text);font-weight:600}
 .tool.peeking{background:var(--text);color:#fff;border-color:var(--text)}
@@ -363,8 +381,10 @@ html,body{
     </div>
     <div class="sublinks">
       <button class="linkbtn" onclick="rescanOne()">다시 인식</button>
+      <button class="linkbtn" onclick="toggleRead()">읽은 글자</button>
       <button class="linkbtn" onclick="removeActive()">이 사진 빼기</button>
     </div>
+    <div class="readout" id="readout"></div>
   </div>
 </div>
 
@@ -1298,18 +1318,42 @@ function censorShot(shot){
   });
 
   if(debugMode){
+    // 단어마다 네모로 표시한다(원고지처럼). 모든 단어에 글자까지 겹쳐 쓰면 도배되므로,
+    // 글자는 흐릿하게 읽은 것에만 붙인다 — 고칠 곳이 바로 눈에 띈다.
     ctx.save();
-    ctx.lineWidth=Math.max(1,Math.round(medH*0.05));
+    ctx.lineWidth=Math.max(1,Math.round(medH*0.045));
+    const fs=Math.max(10,Math.round(medH*0.4));
+    // 줄 단위 범위 — 어디서부터 어디까지 한 줄로 읽었는지 보인다
+    const src=(shot.ocr&&shot.ocr.kor)||null;
+    if(src&&src.lines){
+      ctx.setLineDash([Math.round(medH*0.22),Math.round(medH*0.16)]);
+      ctx.strokeStyle='rgba(150,150,150,.55)';
+      src.lines.forEach((l,n)=>{
+        const b=l.bbox; if(!b)return;
+        const pad=Math.round(medH*0.1);
+        ctx.strokeRect(b.x0-pad,b.y0-pad,(b.x1-b.x0)+pad*2,(b.y1-b.y0)+pad*2);
+        ctx.setLineDash([]);
+        ctx.font='600 '+Math.round(fs*0.8)+'px sans-serif';
+        ctx.fillStyle='rgba(120,120,120,.9)';
+        ctx.fillText(String(n+1),Math.max(2,b.x0-pad-fs*0.8),b.y0+ (b.y1-b.y0)/2);
+        ctx.setLineDash([Math.round(medH*0.22),Math.round(medH*0.16)]);
+      });
+      ctx.setLineDash([]);
+    }
     allW.forEach(w=>{
-      const b=w.bbox;
-      ctx.strokeStyle='rgba(31,47,208,.9)';
+      const b=w.bbox, conf=w.confidence!==undefined?w.confidence:100, weak=conf<72;
+      ctx.strokeStyle=weak?'rgba(200,40,40,.95)':'rgba(60,120,220,.5)';
       ctx.strokeRect(b.x0,b.y0,b.x1-b.x0,b.y1-b.y0);
-      const t=(w.text||'').trim();
-      if(t){
-        const fs=Math.max(9,Math.round(medH*0.42));
-        ctx.font='600 '+fs+'px sans-serif';
-        ctx.fillStyle='rgba(255,46,136,.95)';
-        ctx.fillText(t,b.x0,Math.max(fs,b.y0-2));
+      if(weak){
+        const t=(w.text||'').trim();
+        if(t){
+          ctx.font='600 '+fs+'px sans-serif';
+          const tw=ctx.measureText(t).width;
+          ctx.fillStyle='rgba(255,255,255,.92)';
+          ctx.fillRect(b.x0-2,b.y0-fs-4,tw+4,fs+3);
+          ctx.fillStyle='rgba(190,40,40,.95)';
+          ctx.fillText(t,b.x0,b.y0-4);
+        }
       }
     });
     ctx.restore();
@@ -1351,7 +1395,13 @@ function addFiles(files){
     rd.onload=e=>{
       const img=new Image();
       img.onload=()=>{attachImage(shot,img);renderSheet();updateDock();};
-      img.onerror=()=>{shots=shots.filter(s=>s!==shot);renderSheet();updateDock();};
+      // 아이폰 기본 촬영 포맷(HEIC)은 브라우저가 못 읽는다 — 조용히 사라지면 이유를 알 수 없으니 알려준다
+      img.onerror=()=>{
+        shots=shots.filter(s=>s!==shot);renderSheet();updateDock();
+        toast(/\.(heic|heif)$/i.test(f.name)||/heic|heif/i.test(f.type)
+          ? 'HEIC 사진은 못 읽어요 — 아이폰 설정 › 카메라 › 포맷을 «높은 호환성»으로 바꾸거나, 스크린샷으로 넣어주세요'
+          : f.name+' 은(는) 열 수 없는 사진이에요');
+      };
       img.src=e.target.result;
     };
     rd.onerror=()=>{shots=shots.filter(s=>s!==shot);renderSheet();};
@@ -1464,6 +1514,8 @@ async function ocrShot(shot,needEng,onTick){
   onProg=m=>{if(m.progress!==undefined&&m.status==='recognizing text')onTick(m.progress*100);};
   try{
     if(!shot.ocr){
+      // 한글 전용 모델로 읽는다. 한·영을 함께 올리면 후보가 늘어 한글 정확도가 떨어진다
+      // (영문 단어를 가릴 때는 아래에서 eng 모델을 따로 한 번 더 돌린다)
       const w=await getWorker('kor');
       const r=await w.recognize(pc);
       unscaleOcr(r.data,k);
@@ -1665,6 +1717,47 @@ function refreshDetail(){
   if(!s)return;
   document.getElementById('detail-sub').textContent=
     s.status==='done'?(s.count?s.count+'곳 가림':'이 사진엔 해당 단어가 없어요'):'아직 안 읽었어요';
+  if(document.getElementById('readout').classList.contains('show'))paintReadout();
+}
+
+/* 읽은 글자를 그대로 보여준다 — 사진 위에 겹쳐 쓰는 것보다 확인하기 쉽다 */
+function toggleRead(){
+  const box=document.getElementById('readout');
+  box.classList.toggle('show');
+  if(box.classList.contains('show'))paintReadout();
+}
+function paintReadout(){
+  const box=document.getElementById('readout'), s=activeShot();
+  if(!s)return;
+  if(!s.ocr){ box.innerHTML='<div class="ro-empty">아직 안 읽었어요 — «전부 가리기»를 먼저 눌러 주세요</div>'; return }
+
+  const render=data=>{
+    const lines=[]; let weak=0;
+    (data.lines||[]).forEach(l=>{
+      const ws=(l.words||[]).filter(w=>(w.text||'').trim());
+      if(ws.length) lines.push(ws);
+    });
+    if(!lines.length) return {html:'<div class="ro-empty">글자를 찾지 못했어요</div>',n:0,weak:0};
+    const html=lines.map(ws=>'<div class="ro-line">'+ws.map(w=>{
+      const c=w.confidence!==undefined?w.confidence:100, t=w.text.trim();
+      if(c<72) weak++;
+      return '<span class="ro-w'+(c<72?' weak':'')+'" title="확신도 '+Math.round(c)+'%">'+
+        t.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))+'</span>';
+    }).join(' ')+'</div>').join('');
+    return {html,n:lines.length,weak};
+  };
+
+  const k=render(s.ocr.kor||{});
+  let out=k.html
+    +'<div class="ro-foot">한글 모델 · '+k.n+'줄'
+    +(k.weak?' · <b>'+k.weak+'개</b>는 흐릿해요 (빨간 글자)':' · 전부 또렷해요')+'</div>';
+  // 영문 단어를 가릴 때만 영문 모델이 돌아간다 — 그 결과도 따로 보여준다
+  if(s.ocr.eng){
+    const e=render(s.ocr.eng);
+    out+='<div class="ro-sep"></div>'+e.html
+      +'<div class="ro-foot">영문 모델 · '+e.n+'줄'+(e.weak?' · '+e.weak+'개 흐릿':'')+'</div>';
+  }
+  box.innerHTML=out;
 }
 let peeking=false;
 function togglePeek(){
