@@ -347,7 +347,7 @@ html,body{
     </div>
     <div class="sec">
       <div class="sec-title">원본 텍스트</div>
-      <textarea class="ta" id="src-text" placeholder="여기에 텍스트를 붙여넣으세요&#10;**굵게**  ==형광펜==  *흐리게*"></textarea>
+      <textarea class="ta" id="src-text" placeholder="여기에 텍스트를 붙여넣으세요&#10;**굵게**  ==형광펜==  *흐리게*  # 제목  ![](이미지주소)"></textarea>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" onclick="openResult()">바꾸기</button>
@@ -461,7 +461,7 @@ html,body{
       <div class="chip" data-cat="solid" onclick="pickBgCat('solid')">단색</div>
       <div class="chip" data-cat="pastel" onclick="pickBgCat('pastel')">파스텔</div>
       <div class="chip" data-cat="emoji" onclick="pickBgCat('emoji')">이모지</div>
-      <div class="chip" data-cat="book" onclick="pickBgCat('book')">감성</div>
+      <div class="chip" data-cat="frame" onclick="pickBgCat('frame')">테두리</div>
     </div>
     <div class="bg-opts" id="bg-opts" style="display:none;flex-shrink:0"></div>
     <div class="btn-row">
@@ -478,7 +478,7 @@ html,body{
    핵심 변경: 덮개 상자의 좌표를 OCR 글자상자가 아니라
              "원본 픽셀의 잉크 경계"에서 직접 만든다.
    ========================================================================== */
-const APP_VER='v53';
+const APP_VER='v55';
 document.getElementById('ver').textContent=APP_VER;
 
 /* ---------- 상태 ---------- */
@@ -2222,6 +2222,10 @@ function renderMarkup(text,dark){
   let t=text.replace(/\n?```([\s\S]*?)```\n?/g,(m,c)=>{codes.push({block:true,c});return '\u0000C'+(codes.length-1)+'\u0000';})
             .replace(/`([^`\n]+?)`/g,(m,c)=>{codes.push({block:false,c});return '\u0000C'+(codes.length-1)+'\u0000';});
   t=esc(t);t=protectEllipsis(t);
+  // ![설명](주소) 이미지 · [글](주소) 링크 · # 제목
+  t=t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,'<img crossorigin="anonymous" src="$2" alt="$1" style="display:block;max-width:100%;border-radius:8px;margin:8px 0"/>');
+  t=t.replace(/\[([^\]]+?)\]\(([^)\s]+)\)/g,'<span style="text-decoration:underline;text-underline-offset:2px">$1</span>');
+  t=t.replace(/(^|\n)(#{1,3}) ([^\n]+)/g,(m,pre,h,body)=>pre+'<span style="display:block;font-weight:700;font-size:'+(h.length===1?'1.5em':h.length===2?'1.25em':'1.1em')+';margin:6px 0 2px">'+body+'</span>');
   t=t.replace(/\*\*([^*]+?)\*\*/g,'<b>$1</b>');
   // ==형광펜== — 띄어쓰기·줄바꿈까지 끊기지 않고 한 줄로 칠해진다
   t=t.replace(/==([^=\n]+?)==/g,'<mark style="background:'+(dark?'rgba(255,214,0,.42)':'rgba(255,230,0,.6)')+';color:inherit;padding:2px 0;border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone">$1</mark>');
@@ -2266,16 +2270,19 @@ const BG_COLORS=[
   {cat:'emoji',name:'🦋 봄나비',color:'linear-gradient(135deg,#e3f6ec,#eefaf2)',emojis:['🦋','🌿','🌷','✨','🍀']},
   {cat:'emoji',name:'☁️ 하늘',color:'linear-gradient(135deg,#e2f0ff,#f0f7ff)',emojis:['☁️','💙','✨','⭐','🌟']},
   {cat:'emoji',name:'🍑 피치',color:'linear-gradient(135deg,#ffe8db,#fff2ec)',emojis:['🍑','🧡','✨','🌼','🐣']},
-  {cat:'emoji',name:'💗 하트',color:'linear-gradient(135deg,#ffe1ec,#ffeef4)',emojis:['💗','💕','💞','✨','💖']},
-  // 감성 — 책·편지처럼 명조체 + 여백 + 얇은 장식 하나
-  {cat:'book',name:'책장',color:'#fbf7ef',theme:{pad:'40px 30px 44px',lh:'1.95',
+  {cat:'emoji',name:'💗 하트',color:'linear-gradient(135deg,#ffe1ec,#ffeef4)',emojis:['💗','💕','💞','✨','💖']}
+];
+/* 테두리 — 배경색과 따로 고른다. 어떤 색 위에든 얹힘 */
+const FRAMES=[
+  {name:'없음',theme:null},
+  {name:'책장',theme:{pad:'40px 30px 44px',lh:'1.95',
     head:'<div style="text-align:center;font-size:18px;opacity:.55;margin-bottom:22px">❦</div>',
     frame:'<div style="position:absolute;left:30px;right:30px;top:20px;border-top:1px solid currentColor;opacity:.35"></div><div style="position:absolute;left:30px;right:30px;bottom:20px;border-top:1px solid currentColor;opacity:.35"></div>'}},
-  {cat:'book',name:'편지',color:'#fffdf8',theme:{pad:'44px 34px',lh:'1.9',
+  {name:'편지',theme:{pad:'44px 34px',lh:'1.9',
     frame:'<div style="position:absolute;inset:14px;border:1px solid currentColor;opacity:.4"></div><div style="position:absolute;inset:18px;border:1px solid currentColor;opacity:.2"></div>'}},
-  {cat:'book',name:'시집',color:'#1d1b19',theme:{pad:'48px 32px',lh:'2.05',
+  {name:'시집',theme:{pad:'48px 32px',lh:'2.05',
     head:'<div style="width:28px;border-top:1px solid currentColor;opacity:.5;margin:0 auto 26px"></div>'}},
-  {cat:'book',name:'잡지',color:'#ffffff',theme:{pad:'34px 26px 40px',lh:'1.75',
+  {name:'잡지',theme:{pad:'34px 26px 40px',lh:'1.75',
     head:'<div style="border-top:3px solid currentColor;margin-bottom:22px"></div>',
     frame:'<div style="position:absolute;left:26px;right:26px;bottom:18px;border-top:1px solid currentColor;opacity:.3"></div>'}}
 ];
@@ -2283,15 +2290,17 @@ let selectedBg=BG_COLORS[0].color,selectedEmojis=null,selectedTheme=null;
 /* 미리보기·저장 공통: 테마의 글꼴·여백을 씌우고 장식(head/frame)·이모지를 본문과 합친다 */
 function applyTheme(el,base){
   const t=selectedTheme||{};
-  el.style.position='relative';           // 장식(frame)이 여백 포함한 상자 기준으로 놓이게
   el.style.fontFamily=t.font||base.font;
-  el.style.padding=t.pad||base.pad;
   el.style.lineHeight=t.lh||base.lh;
+  el.style.padding='0';                    // 여백은 안쪽 상자가 가진다 (아래 composeBody)
 }
-function composeBody(body){
+function composeBody(body,basePad){
   const t=selectedTheme||{};
   const frame=t.frame?'<div style="position:absolute;inset:0;pointer-events:none">'+t.frame+'</div>':'';
-  return frame+decoHTML(selectedEmojis)+(t.head||'')+body;
+  // 미리보기 창은 스크롤 상자라, 장식을 창이 아니라 '글 전체 길이'에 맞추려면
+  // 여백을 가진 안쪽 상자를 하나 두고 거기에 장식을 붙여야 한다
+  return '<div style="position:relative;box-sizing:border-box;min-height:100%;padding:'+(t.pad||basePad)+'">'+
+         frame+decoHTML(selectedEmojis)+(t.head||'')+body+'</div>';
 }
 function tcode(e){return [...e].map(c=>c.codePointAt(0).toString(16)).filter(c=>c!=='fe0f').join('-');}
 function decoHTML(emojis){
@@ -2309,14 +2318,26 @@ BG_COLORS.forEach((b,i)=>{
   const d=document.createElement('div');
   d.className='bg-opt'+(i===0?' on':'');
   d.style.background=b.color;d.title=b.name;d.dataset.cat=b.cat;
-  if(b.theme){d.style.width='auto';d.style.padding='0 10px';d.style.fontSize='12px';d.style.lineHeight='23px';d.style.color=isDarkBg(b.color)?'#f0ece6':'#14121A';d.textContent=b.name;}
   if(b.emojis){
     d.innerHTML='<img crossorigin="anonymous" src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/72x72/'+tcode(b.emojis[0])+'.png" style="width:14px;height:14px"/>';
     d.style.display='flex';d.style.alignItems='center';d.style.justifyContent='center';
   }
   d.onclick=()=>{
-    selectedBg=b.color;selectedEmojis=b.emojis||null;selectedTheme=b.theme||null;
-    bgOpts.querySelectorAll('.bg-opt').forEach(x=>x.classList.remove('on'));
+    selectedBg=b.color;selectedEmojis=b.emojis||null;
+    bgOpts.querySelectorAll('.bg-opt:not(.fr)').forEach(x=>x.classList.remove('on'));
+    d.classList.add('on');
+    if(_resultRaw)_renderPreview();
+  };
+  bgOpts.appendChild(d);
+});
+FRAMES.forEach((f,i)=>{
+  const d=document.createElement('div');
+  d.className='bg-opt fr'+(i===0?' on':'');d.dataset.cat='frame';
+  d.style.cssText='width:auto;padding:0 10px;font-size:12px;line-height:23px;background:var(--surface)';
+  d.textContent=f.name;
+  d.onclick=()=>{
+    selectedTheme=f.theme;
+    bgOpts.querySelectorAll('.bg-opt.fr').forEach(x=>x.classList.remove('on'));
     d.classList.add('on');
     if(_resultRaw)_renderPreview();
   };
@@ -2336,8 +2357,8 @@ function _renderPreview(){
   const dark=isDarkBg(selectedBg);
   rt.style.background=selectedBg;
   rt.style.color=dark?'#f0ece6':'#14121A';
-  applyTheme(rt,{font:'',pad:'',lh:''});
-  rt.innerHTML=composeBody(renderMarkup(_resultRaw,dark));
+  applyTheme(rt,{font:'',lh:''});
+  rt.innerHTML=composeBody(renderMarkup(_resultRaw,dark),'16px');
 }
 function openResult(){
   const result=doReplace();
@@ -2371,8 +2392,8 @@ async function textToImage(){
     'padding:24px 20px;background:'+selectedBg+';color:'+(dark?'#f0ece6':'#14121A')+';'+
     "font-family:'Pretendard Variable',Pretendard,'Apple SD Gothic Neo',sans-serif;"+
     'font-size:14px;line-height:1.55;letter-spacing:-0.02em;white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere';
-  applyTheme(stage,{font:"'Pretendard Variable',Pretendard,'Apple SD Gothic Neo',sans-serif",pad:'24px 20px',lh:'1.55'});
-  stage.innerHTML=composeBody(renderMarkup(_resultRaw,dark));
+  applyTheme(stage,{font:"'Pretendard Variable',Pretendard,'Apple SD Gothic Neo',sans-serif",lh:'1.55'});
+  stage.innerHTML=composeBody(renderMarkup(_resultRaw,dark),'24px 20px');
   document.body.appendChild(stage);
   try{
     await document.fonts.ready;
