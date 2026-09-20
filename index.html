@@ -973,7 +973,12 @@ function buildLines(words,srcCtx,medH){
       const chars=charsOfWord(o.w);
       if(!chars.length)return;
       const an=analyzeWord(srcCtx,o.bb,approxH);
-      let boxes=an?toCharBoxes(an,chars):null;
+      // 영문 낱말은 테서랙트가 준 글자 상자를 그대로 쓴다.
+      // 아래 픽셀 칸 나누기는 '한글은 폭이 같다'는 전제라 @Lulu 같은 건 @ 폭을 잘못 잡아 옆 글자까지 덮는다.
+      const latinWord=!chars.some(c=>/[가-힣㄰-㆏一-鿿]/.test(c.ch));
+      let boxes=latinWord&&chars.every(c=>c.sym&&c.sym.bbox&&c.cn===1)
+        ?chars.map(c=>({x0:c.sym.bbox.x0,x1:c.sym.bbox.x1}))
+        :(an?toCharBoxes(an,chars):null);
       if(an)bands.push({t:an.top,b:an.bottom});
       if(!boxes){
         // 픽셀 분석이 실패하면 OCR 상자를 글자 수로 균등 분할 (안전한 대비책)
