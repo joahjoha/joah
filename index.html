@@ -430,6 +430,10 @@ html,body{
       <button class="icon-btn" onclick="closeJoin()" aria-label="닫기">✕</button>
     </div>
     <div class="join-list" id="join-list"></div>
+    <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);cursor:pointer;flex-shrink:0">
+      <input type="checkbox" class="join-ck" id="join-num" checked/>
+      사진마다 오른쪽 위에 순서 번호 넣기
+    </label>
     <div class="detail-tools" style="grid-template-columns:1fr 2fr">
       <button class="tool" id="join-all-btn" onclick="joinToggleAll()">전부 해제</button>
       <button class="btn btn-primary" id="join-save" onclick="saveJoined()">이어붙여 저장</button>
@@ -2095,6 +2099,24 @@ function joinToggleAll(){
   renderJoin();
 }
 
+// 붙인 사진마다 오른쪽 위에 순서를 작게 — 검정 동그라미에 흰 숫자.
+// 어두운 스크린샷에서도 보이게 머리카락 같은 흰 테두리만 둘렀다.
+function joinBadge(g,n,cw,y){
+  const r=Math.min(28,Math.max(12,Math.round(cw*0.016)));
+  const m=Math.round(r*0.85);
+  const cx=cw-m-r, cy=y+m+r;
+  const s=String(n);
+  g.save();
+  g.beginPath();g.arc(cx,cy,r,0,Math.PI*2);
+  g.fillStyle='#1c1917';g.fill();
+  g.lineWidth=Math.max(1,r*0.08);g.strokeStyle='rgba(255,255,255,.85)';g.stroke();
+  g.fillStyle='#fff';
+  g.font='700 '+Math.round(r*(s.length>1?1:1.2))+'px -apple-system,BlinkMacSystemFont,system-ui,sans-serif';
+  g.textAlign='center';g.textBaseline='middle';
+  g.fillText(s,cx,cy+Math.round(r*0.05));
+  g.restore();
+}
+
 async function saveJoined(){
   const list=joinList.filter(j=>j.on).map(j=>shots.find(s=>s.id===j.id)).filter(s=>s&&s.out);
   if(list.length<2){toast('2장 이상 골라주세요');return;}
@@ -2116,8 +2138,13 @@ async function saveJoined(){
     const c=document.createElement('canvas');c.width=cw;c.height=ch;
     const g=c.getContext('2d');
     g.fillStyle='#fff';g.fillRect(0,0,cw,ch);
+    const num=document.getElementById('join-num').checked;
     let y=0;
-    for(let i=0;i<list.length;i++){g.drawImage(list[i].out,0,y,cw,ih[i]);y+=ih[i];}
+    for(let i=0;i<list.length;i++){
+      g.drawImage(list[i].out,0,y,cw,ih[i]);
+      if(num)joinBadge(g,i+1,cw,y);
+      y+=ih[i];
+    }
 
     const blob=await toBlob(c);
     const file=new File([blob],'가림_이어붙임_'+list.length+'장.png',{type:'image/png'});
